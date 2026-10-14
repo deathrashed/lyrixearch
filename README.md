@@ -3,18 +3,40 @@
   <h1 align="center">LYRIXEARCH</h1>
   <p align="center"><strong>Find lyrics for your music, review them, and embed them in the files.</strong></p>
   <p align="center">One Rust engine behind a CLI, a terminal UI and a desktop app. Drop a folder; it scans every subfolder, searches many sources at once, matches the results to your tracks and writes the lyrics into the tags.</p>
-  <p align="center">
 <p align="center">
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-202327?style=for-the-badge&logo=rust&logoColor=5fe27f&labelColor=40474e" alt="Built with Rust"></a>
-  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/tauri-202327?style=for-the-badge&logo=tauri&logoColor=5fe27f&labelColor=40474e" alt="Tauri 2 desktop app"></a>
-  <a href="https://ratatui.rs/"><img src="https://img.shields.io/badge/ratatui-202327?style=for-the-badge&logo=ratatui&logoColor=5fe27f&labelColor=40474e" alt="Terminal UI built with ratatui"></a>
-  <a href="LICENSE"><img src="https://custom-icon-badges.demolab.com/badge/mit-202327?style=for-the-badge&logo=mit-license&logoColor=5fe27f&labelColor=40474e" alt="MIT license"></a>
+  <a href="https://www.rust-lang.org/"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/Rust.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=rust&amp;logoColor=5fe27f" />
+    <img alt="Built with Rust" src="https://shieldcn.dev/badge/Rust.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=rust&amp;logoColor=1f8f43" />
+  </picture></a>
+  <a href="https://tauri.app/"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/Tauri.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=tauri&amp;logoColor=5fe27f" />
+    <img alt="Tauri 2 desktop app" src="https://shieldcn.dev/badge/Tauri.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=tauri&amp;logoColor=1f8f43" />
+  </picture></a>
+  <a href="https://ratatui.rs/"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/ratatui.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=ratatui&amp;logoColor=5fe27f" />
+    <img alt="Terminal UI built with ratatui" src="https://shieldcn.dev/badge/ratatui.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=ratatui&amp;logoColor=1f8f43" />
+  </picture></a>
+  <a href="LICENSE"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/MIT.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=lu%3AScale&amp;logoColor=5fe27f" />
+    <img alt="MIT license" src="https://shieldcn.dev/badge/MIT.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=lu%3AScale&amp;logoColor=1f8f43" />
+  </picture></a>
 </p>
 <p align="center">
-  <a href="#platform-status"><img src="https://img.shields.io/badge/macOS-202327?style=for-the-badge&logo=apple&logoColor=5fe27f&labelColor=40474e" alt="macOS"></a>
-  <a href="#platform-status"><img src="https://img.shields.io/badge/Linux-202327?style=for-the-badge&logo=linux&logoColor=5fe27f&labelColor=40474e" alt="Linux"></a>
- <a href="#platform-status"><img src="https://img.shields.io/badge/Windows-202327?style=for-the-badge&logo=windows&logoColor=5fe27f&labelColor=40474e" alt="Windows"></a>
-  </p> 
+  <a href="#status"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/macOS.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=apple&amp;logoColor=5fe27f" />
+    <img alt="macOS" src="https://shieldcn.dev/badge/macOS.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=apple&amp;logoColor=1f8f43" />
+  </picture></a>
+  <a href="#status"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/Linux.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=linux&amp;logoColor=5fe27f" />
+    <img alt="Linux" src="https://shieldcn.dev/badge/Linux.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=linux&amp;logoColor=1f8f43" />
+  </picture></a>
+  <a href="#status"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/Windows.svg?variant=outline&amp;size=default&amp;mode=dark&amp;logo=ri%3AFaWindows&amp;logoColor=5fe27f" />
+    <img alt="Windows" src="https://shieldcn.dev/badge/Windows.svg?variant=outline&amp;size=default&amp;mode=light&amp;logo=ri%3AFaWindows&amp;logoColor=1f8f43" />
+  </picture></a>
+</p>
+
+  </p>
   <p align="center">
     <a href="#quick-start">Quick Start</a> |
     <a href="#install">Install</a> |
