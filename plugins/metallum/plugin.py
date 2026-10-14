@@ -94,7 +94,16 @@ def album_result(binary: str, artist: str, album: str) -> dict:
     done = subprocess.run([binary, "lyrics", album, "--artist", artist, "--json"],
                           capture_output=True, text=True, env=env, check=False)
     if done.returncode != 0:
-        raise RuntimeError((done.stderr or done.stdout or f"exit {done.returncode}").strip().splitlines()[-1])
+        # the CLI reports "ambiguous" / "not found" as a JSON error object: that is a miss, not a failure
+        for blob in (done.stdout, done.stderr):
+            try:
+                err = json.loads(blob)
+            except ValueError:
+                continue
+            if isinstance(err, dict):
+                return err
+        text = (done.stderr or done.stdout or "").strip()
+        raise RuntimeError(f"metallum exited {done.returncode}: {text[-200:] if text else 'no output'}")
     value = json.loads(done.stdout)
     if not isinstance(value, dict):
         raise RuntimeError("metallum returned non-object JSON")

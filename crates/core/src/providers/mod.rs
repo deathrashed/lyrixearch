@@ -163,7 +163,8 @@ impl RateLimited {
     /// Build from a response: `Retry-After` seconds when present, otherwise a default wait.
     pub fn from_response(resp: &reqwest::Response, reason: &str) -> Self {
         let secs = resp.headers().get(reqwest::header::RETRY_AFTER).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(30);
-        Self { retry_after: std::time::Duration::from_secs(secs.clamp(1, 900)), reason: reason.into() }
+        // a server that says "1 second" while failing every request still needs a real pause
+        Self { retry_after: std::time::Duration::from_secs(secs.clamp(15, 900)), reason: reason.into() }
     }
 }
 
