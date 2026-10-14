@@ -49,7 +49,8 @@ fn best_track(html: &str, q: &Query, min: f32) -> Option<(f32, String, String, S
             continue;
         }
         let stop = heads.get(i + 1).map(|h| h.0.start).unwrap_or(body.len());
-        let text = html_to_text(&body[range.end..stop]);
+        // the page source wraps after every <br />; only the <br /> itself is a line break
+        let text = html_to_text(&body[range.end..stop].replace(['\r', '\n'], " ")).lines().map(str::trim).collect::<Vec<_>>().join("\n");
         if !text.trim().is_empty() {
             best = Some((sc.overall, num.clone(), title.clone(), text));
         }
@@ -112,5 +113,18 @@ impl Provider for DarkLyrics {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_newlines_do_not_double_the_lines() {
+        let html = "<div class=\"lyrics\">\n<h3><a name=\"1\">1. Battery</a></h3><br />\nLashing out<br />\nWeak are ripped<br />\n<br />\nSmashing through<br />\n<div class=\"thanks\">x</div>";
+        let q = Query { artist: "Metallica".into(), title: "Battery".into(), ..Default::default() };
+        let (_, _, _, text) = best_track(html, &q, 0.8).unwrap();
+        assert_eq!(text, "Lashing out\nWeak are ripped\n\nSmashing through");
     }
 }

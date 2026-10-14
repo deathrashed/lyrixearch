@@ -1089,6 +1089,12 @@ const SELFTEST_JS: &str = r#"
 "#;
 
 fn main() {
+    // WebKitGTK's DMA-BUF renderer fails on many Wayland/Mesa/NVIDIA setups with "Error 71 (Protocol error)";
+    // switching it off is harmless elsewhere. A user's own setting wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     let cfg = Config::load().unwrap_or_default();
     let engine = Engine::with_cookies(cfg.clone(), jar()).unwrap_or_else(|_| Engine::with_cookies(Config::default(), jar()).expect("default config is valid"));
     let state = AppState(Mutex::new(Inner {
@@ -1148,7 +1154,12 @@ fn main() {
         ])
         .setup(|app| {
             app.manage(player::Player::start(app.handle().clone()));
-            let window = WindowBuilder::new(app, "main").title("Lyrixearch").inner_size(1380.0, 880.0).min_inner_size(980.0, 620.0).build()?;
+            let window = WindowBuilder::new(app, "main")
+                .title("Lyrixearch")
+                .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))?)?
+                .inner_size(1380.0, 880.0)
+                .min_inner_size(980.0, 620.0)
+                .build()?;
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
             window.add_child(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
 

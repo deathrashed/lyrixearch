@@ -42,8 +42,24 @@ fn fold(c: char) -> char {
     }
 }
 
+static EXCLUDED: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<div[^>]*data-exclude-from-selection="true"[^>]*>"#).unwrap());
+
+/// Genius puts the contributors/translations header, "Read More" and ads inside the lyrics container and marks
+/// them `data-exclude-from-selection`; cut those blocks out before turning the rest into text.
+fn without_excluded(html: &str) -> String {
+    let mut out = html.to_string();
+    // each pass removes one block; nested blocks disappear with their parent
+    while let Some(m) = EXCLUDED.find(&out) {
+        let inner_len = balanced_div(&out, m.end()).len();
+        let end = (m.end() + inner_len + "</div>".len()).min(out.len());
+        out.replace_range(m.start()..end, "");
+    }
+    out
+}
+
 fn extract_lyrics(html: &str) -> Option<String> {
-    let parts: Vec<String> = CONTAINER.find_iter(html).map(|m| html_to_text(balanced_div(html, m.end()))).filter(|t| !t.trim().is_empty()).collect();
+    let parts: Vec<String> =
+        CONTAINER.find_iter(html).map(|m| html_to_text(&without_excluded(balanced_div(html, m.end())))).filter(|t| !t.trim().is_empty()).collect();
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
@@ -131,6 +147,12 @@ impl Provider for Genius {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn header_blocks_are_not_lyrics() {
+        let html = r#"<div data-lyrics-container="true" class="c"><div data-exclude-from-selection="true" class="h"><button><span>3 Contributors</span></button><div><div>Translations</div></div><h1>Song Lyrics</h1></div>First line<br/>Second line<br/><br/>Third line<div data-exclude-from-selection="true">Read More</div></div>"#;
+        assert_eq!(extract_lyrics(html).unwrap(), "First line\nSecond line\n\nThird line");
+    }
 
     #[test]
     fn slugs() {
