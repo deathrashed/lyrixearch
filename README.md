@@ -4,27 +4,33 @@
   <p align="center"><strong>Find lyrics for your music, review them, and embed them in the files.</strong></p>
   <p align="center">One Rust engine behind a CLI, a terminal UI and a desktop app. Drop a folder; it scans every subfolder, searches many sources at once, matches the results to your tracks and writes the lyrics into the tags.</p>
   <p align="center">
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1e1e1e?style=for-the-badge&logo=rust&logoColor=5fe27f" alt="Built with Rust"></a>
-  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri%202-1e1e1e?style=for-the-badge&logo=tauri&logoColor=5fe27f" alt="Tauri 2 desktop app"></a>
-  <a href="https://ratatui.rs/"><img src="https://img.shields.io/badge/ratatui%20TUI-1e1e1e?style=for-the-badge&logo=gnometerminal&logoColor=5fe27f" alt="Terminal UI built with ratatui"></a>
-  </p>
+<p align="center">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-202327?style=for-the-badge&logo=rust&logoColor=5fe27f&labelColor=40474e" alt="Built with Rust"></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/tauri-202327?style=for-the-badge&logo=tauri&logoColor=5fe27f&labelColor=40474e" alt="Tauri 2 desktop app"></a>
+  <a href="https://ratatui.rs/"><img src="https://img.shields.io/badge/ratatui-202327?style=for-the-badge&logo=ratatui&logoColor=5fe27f&labelColor=40474e" alt="Terminal UI built with ratatui"></a>
+  <a href="LICENSE"><img src="https://custom-icon-badges.demolab.com/badge/mit-202327?style=for-the-badge&logo=mit-license&logoColor=5fe27f&labelColor=40474e" alt="MIT license"></a>
+</p>
+<p align="center">
+  <a href="#platform-status"><img src="https://img.shields.io/badge/macOS-202327?style=for-the-badge&logo=apple&logoColor=5fe27f&labelColor=40474e" alt="macOS"></a>
+  <a href="#platform-status"><img src="https://img.shields.io/badge/Linux-202327?style=for-the-badge&logo=linux&logoColor=5fe27f&labelColor=40474e" alt="Linux"></a>
+ <a href="#platform-status"><img src="https://img.shields.io/badge/Windows-202327?style=for-the-badge&logo=windows&logoColor=5fe27f&labelColor=40474e" alt="Windows"></a>
+  </p> 
   <p align="center">
-  <a href="#platform-status"><img src="https://img.shields.io/badge/macOS-1e1e1e?style=for-the-badge&logo=apple&logoColor=c9ccd1" alt="macOS"></a>
-  <a href="#platform-status"><img src="https://img.shields.io/badge/Windows-1e1e1e?style=for-the-badge&logo=windows&logoColor=c9ccd1" alt="Windows"></a>
-  <a href="#platform-status"><img src="https://img.shields.io/badge/Linux-1e1e1e?style=for-the-badge&logo=linux&logoColor=c9ccd1" alt="Linux"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/MIT-1e1e1e?style=for-the-badge&logo=opensourceinitiative&logoColor=c9ccd1" alt="MIT license"></a>
+    <a href="#quick-start">Quick Start</a> |
+    <a href="#install">Install</a> |
+    <a href="#app">App</a> |
+    <a href="#tui">TUI</a> |
+    <a href="#sources">Sources</a> |
+    <a href="#plugins">Plugins</a> |
+    <a href="#functionality">Functionality</a> |
+    <a href="#structure">Structure</a> |
+    <a href="#build">Build</a> |
+    <a href="#contributing">Contributing</a> |
+    <a href="#license">License</a>
   </p>
-  <p align="center"><a href="#quick-start">Quick Start</a> | <a href="#the-app">App</a> | <a href="#the-terminal-ui">TUI</a> | <a href="#sources">Sources</a> | <a href="#plugins">Plugins</a> | <a href="#build-from-source">Build</a></p>
 </div>
 
-<details>
-<summary><strong>Contents</strong></summary>
 
-- [Quick Start](#quick-start) · [Install](#install) · [The App](#the-app) · [The Terminal UI](#the-terminal-ui)
-- [Sources](#sources) · [Plugins](#plugins) · [How lyrics are written](#how-lyrics-are-written)
-- [Project Structure](#project-structure) · [Build from source](#build-from-source) · [Contributing and legal](#contributing-and-legal) · [License](#license)
-
-</details>
 
 ---
 
@@ -47,7 +53,7 @@ lyrixearch-gui                           # desktop app
 > [!TIP]
 > Run `lyrixearch` with no arguments for the **terminal UI**. Searching never writes by itself there: review the results, then press `w`.
 
-## <img src="https://api.iconify.design/mdi:download.svg?color=%23c9ccd1" height="22" alt=""> Install
+## <img src="https://api.iconify.design/mdi:download.svg?color=%235fe27f" height="22" alt=""> Install
 
 Download a build from [Releases](../../releases) (macOS, Windows, Linux), or build it yourself below.
 
@@ -60,16 +66,16 @@ To run the CLI from anywhere, link it onto your `PATH`:
 ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 ```
 
-## <img src="https://api.iconify.design/mdi:application-outline.svg?color=%235fe27f" height="22" alt=""> The App
+## <img src="https://api.iconify.design/mdi:application-outline.svg?color=%235fe27f" height="22" alt=""> App
 
 | | Feature |
 | --- | --- |
-| <img src="https://api.iconify.design/mdi:folder-multiple-plus-outline.svg?color=%235fe27f" height="16" alt=""> | **Add music** by dropping folders or files on the window (or the app icon on macOS), **Files** / **Folder**, or the command line. Every subfolder is scanned. **Library** remembers folders and re-scans them in one go. |
-| <img src="https://api.iconify.design/mdi:playlist-music-outline.svg?color=%23c9ccd1" height="16" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Tabs filter by **All, Missing, Embedded, Found, NA, Error**; select-all, **Search**, **Embed**, **Files**, **More** and **Drop embedded** act on the selection. |
-| <img src="https://api.iconify.design/mdi:lightning-bolt-outline.svg?color=%235fe27f" height="16" alt=""> | **Find &amp; embed all**: the green top-bar button searches every track currently listed and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
-| <img src="https://api.iconify.design/mdi:file-music-outline.svg?color=%23c9ccd1" height="16" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
-| <img src="https://api.iconify.design/mdi:play-circle-outline.svg?color=%235fe27f" height="16" alt=""> | **Details**: compact player, then **Lyrics**, **Edit**, **Web** and **Info**. Copy, paste from clipboard, edit, reveal, remove. Buttons can show icons, text or both. |
-| <img src="https://api.iconify.design/mdi:web.svg?color=%23c9ccd1" height="16" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. |
+| <img src="https://api.iconify.design/mdi:folder-multiple-plus-outline.svg?color=%235fe27f" height="20" alt=""> | **Add music** by dropping folders or files on the window (or the app icon on macOS), **Files** / **Folder**, or the command line. Every subfolder is scanned. **Library** remembers folders and re-scans them in one go. |
+| <img src="https://api.iconify.design/mdi:playlist-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Tabs filter by **All, Missing, Embedded, Found, NA, Error**; select-all, **Search**, **Embed**, **Files**, **More** and **Drop embedded** act on the selection. |
+| <img src="https://api.iconify.design/mdi:lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Find &amp; embed all**: the green top-bar button searches every track currently listed and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
+| <img src="https://api.iconify.design/mdi:file-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
+| <img src="https://api.iconify.design/mdi:play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Details**: compact player, then **Lyrics**, **Edit**, **Web** and **Info**. Copy, paste from clipboard, edit, reveal, remove. Buttons can show icons, text or both. |
+| <img src="https://api.iconify.design/mdi:web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. |
 
 <details>
 <summary><strong>State colors</strong></summary>
@@ -84,7 +90,7 @@ ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 
 </details>
 
-## <img src="https://api.iconify.design/mdi:console.svg?color=%23c9ccd1" height="22" alt=""> The Terminal UI
+## <img src="https://api.iconify.design/mdi:console.svg?color=%235fe27f" height="22" alt=""> TUI
 
 Run `lyrixearch` with no arguments.
 
@@ -101,7 +107,7 @@ Run `lyrixearch` with no arguments.
 The header counts files, with lyrics, left to search and NA; while searching, the footer shows a progress bar with the current track, source, found and NA counts.
 
 <details>
-<summary><strong>All CLI commands</strong></summary>
+<summary><strong>CLI</strong></summary>
 
 | Command | What it does |
 | --- | --- |
@@ -132,15 +138,15 @@ The header counts files, with lyrics, left to search and NA; while searching, th
 
 Per track, sources are tried in order with a per-source timeout; sources that keep failing are skipped for a while. Ten tracks are searched at once by default. Sources that show a captcha or browser check (DuckDuckGo, and any page behind Cloudflare) open a verification window in the desktop app; the cookies from it are reused for the rest of the search. Not yet included: AZLyrics, Letras and Uta-Net (all three sit behind bot checks), and Musixmatch (needs a private signed token).
 
-## <img src="https://api.iconify.design/mdi:puzzle-outline.svg?color=%23c9ccd1" height="22" alt=""> Plugins
+## <img src="https://api.iconify.design/mdi:puzzle-outline.svg?color=%235fe27f" height="22" alt=""> Plugins
 
 A plugin is any script that speaks a small JSON protocol over stdin/stdout. See [docs/PLUGINS.md](docs/PLUGINS.md). `plugins/metallum` is an example; it needs the separate `metallum` command-line tool.
 
-## <img src="https://api.iconify.design/mdi:tag-text-outline.svg?color=%235fe27f" height="22" alt=""> How lyrics are written
+## <img src="https://api.iconify.design/mdi:tag-text-outline.svg?color=%235fe27f" height="22" alt=""> Functionality
 
 ID3v2 `USLT`, MP4 `©lyr`, Vorbis/FLAC `LYRICS`, ASF `WM/Lyrics` and APE, through [`lofty`](https://crates.io/crates/lofty). File modification times are preserved by default. Options: sidecar `.lrc`/`.txt`, strip `[Chorus]`-style headers, leading blank line. Synced text goes to a sidecar; the tag holds the plain text. Settings live in a TOML file (`lyrixearch config path`) and are all editable in the app.
 
-## <img src="https://api.iconify.design/mdi:file-tree.svg?color=%23c9ccd1" height="22" alt=""> Project Structure
+## <img src="https://api.iconify.design/mdi:file-tree.svg?color=%235fe27f" height="22" alt=""> Structure
 
 ```text
 lyrixearch/
@@ -157,7 +163,7 @@ lyrixearch/
 └── .github/workflows/   # CI and release builds
 ```
 
-## <img src="https://api.iconify.design/mdi:hammer-wrench.svg?color=%235fe27f" height="22" alt=""> Build from source
+## <img src="https://api.iconify.design/mdi:hammer-wrench.svg?color=%235fe27f" height="22" alt=""> Build
 
 You need a recent stable Rust toolchain.
 
@@ -175,7 +181,7 @@ cd crates/gui && cargo tauri build
 ```
 
 <details>
-<summary><strong>Linux and Windows prerequisites</strong></summary>
+<summary><strong>Platform Prerequisites</strong></summary>
 
 **Linux** needs the Tauri prerequisites and ALSA headers for the built-in player:
 
@@ -188,11 +194,11 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
 
 </details>
 
-### Platform status
+### Status
 
 CI builds, lints and tests on macOS, Windows and Linux. **Hands-on testing has so far been done on macOS only.** The in-window web panel uses Tauri's unstable multi-webview support, the part most likely to behave differently on Linux and Windows; the "open in browser" button always works. Bug reports with the OS and version are welcome.
 
-## <img src="https://api.iconify.design/mdi:scale-balance.svg?color=%23c9ccd1" height="22" alt=""> Contributing and legal
+## <img src="https://api.iconify.design/mdi:scale-balance.svg?color=%235fe27f" height="22" alt=""> Contributing
 
 Issues and pull requests are welcome. Run `cargo fmt`, `cargo clippy --workspace --all-targets` and `cargo test --workspace` first; CI runs the same checks.
 
@@ -201,12 +207,14 @@ Issues and pull requests are welcome. Run `cargo fmt`, `cargo clippy --workspace
 
 Not affiliated with any other lyrics tool or service.
 
-## <img src="https://api.iconify.design/mdi:license.svg?color=%235fe27f" height="22" alt=""> License
+## <a href="https://opensource.org/license/MIT"><img src="https://spoo.me/pAIMCtr" height="20"></a> License
 
 <div align="center">
 
-[**MIT LICENSE**](LICENSE)
+[**𝗠𝗜𝗧 𝗟𝗜𝗖𝗘𝗡𝗦𝗘**](https://spoo.me/VTWSoc7)
 
-**COPYRIGHT © 2026 LYRIXEARCH CONTRIBUTORS**
+<a href="https://spoo.me/VTWSoc7"><img src="https://spoo.me/r5RZLEo" alt="MIT Badge" width="180"></a>
+
+**𝗖𝗢𝗣𝗬𝗥𝗜𝗚𝗛𝗧 © 𝟮𝟬𝟮𝟲 𝗗𝗘𝗔𝗧𝗛𝗥𝗔𝗦𝗛𝗘𝗗**
 
 </div>
