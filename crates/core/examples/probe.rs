@@ -38,7 +38,9 @@ async fn main() -> anyhow::Result<()> {
                     l.matched_title
                 )
             }
-            lyrixearch_core::Outcome::NotFound(notes) => println!("{id:12} none   {:>5.0?} {}", t.elapsed(), notes.join("; ")),
+            lyrixearch_core::Outcome::NotFound(notes) | lyrixearch_core::Outcome::Failed(notes) => {
+                println!("{id:12} none   {:>5.0?} {}", t.elapsed(), notes.join("; "))
+            }
         }
     }
     Ok(())

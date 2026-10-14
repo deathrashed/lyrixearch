@@ -226,6 +226,10 @@ impl App {
                     self.items[idx].found = Some(*lyrics);
                     self.items[idx].status = Status::Found;
                 }
+                Event::Failed { idx, notes } => {
+                    self.queued_done += 1;
+                    self.items[idx].status = Status::Error(notes.join("; "));
+                }
                 Event::NotFound { idx, notes } => {
                     self.queued_done += 1;
                     self.run_missed += 1;

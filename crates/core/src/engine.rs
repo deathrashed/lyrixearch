@@ -38,6 +38,11 @@ pub enum Event {
     Cancelled {
         idx: usize,
     },
+    /// Every source errored or was benched, so nothing was learned about this track. Search again later.
+    Failed {
+        idx: usize,
+        notes: Vec<String>,
+    },
     /// A source needs a bot check passed (see [`providers::Challenge`]); announced once per site for a while.
     Challenge {
         provider: String,
@@ -49,6 +54,8 @@ pub enum Event {
 pub enum Outcome {
     Found(Box<Lyrics>),
     NotFound(Vec<String>),
+    /// No source gave an answer at all (every one errored or was benched): not the same as "no lyrics exist".
+    Failed(Vec<String>),
 }
 
 #[derive(Default)]
@@ -237,6 +244,7 @@ impl Engine {
     /// Try providers in order for one track; first usable result wins.
     pub async fn find(&self, q: &Query, mut on_event: impl FnMut(&str, Option<&str>)) -> Outcome {
         let mut notes = Vec::new();
+        let mut answered = 0usize;
         let variants = Self::variants(q);
         for p in &self.providers {
             let id = p.id();
@@ -285,7 +293,11 @@ impl Engine {
             } else {
                 self.record_success(id);
                 notes.push(format!("{id}: no match"));
+                answered += 1;
             }
+        }
+        if answered == 0 && !notes.is_empty() {
+            return Outcome::Failed(notes);
         }
         Outcome::NotFound(notes)
     }
@@ -322,6 +334,7 @@ impl Engine {
                 let _ = match outcome {
                     Outcome::Found(l) => tx.send(Event::Found { idx, lyrics: l }),
                     Outcome::NotFound(notes) => tx.send(Event::NotFound { idx, notes }),
+                    Outcome::Failed(notes) => tx.send(Event::Failed { idx, notes }),
                 };
             }));
         }

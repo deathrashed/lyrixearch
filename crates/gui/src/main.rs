@@ -251,9 +251,12 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                 continue;
             }
             let id = match &ev {
-                Event::Trying { idx, .. } | Event::Skipped { idx, .. } | Event::Found { idx, .. } | Event::NotFound { idx, .. } | Event::Cancelled { idx } => {
-                    *idx as u64
-                }
+                Event::Trying { idx, .. }
+                | Event::Skipped { idx, .. }
+                | Event::Found { idx, .. }
+                | Event::NotFound { idx, .. }
+                | Event::Failed { idx, .. }
+                | Event::Cancelled { idx } => *idx as u64,
                 Event::Challenge { .. } => continue,
             };
             match ev {
@@ -267,6 +270,13 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                 Event::Cancelled { .. } => {
                     prog.done += 1;
                     set(&state, id, |e| e.status = Status::Idle);
+                }
+                Event::Failed { notes, .. } => {
+                    prog.done += 1;
+                    set(&state, id, |e| {
+                        e.status = Status::Error;
+                        e.note = Some(format!("no source answered, search again later\n{}", notes.join("\n")));
+                    });
                 }
                 Event::NotFound { notes, .. } => {
                     prog.done += 1;

@@ -254,7 +254,7 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
         tokio::spawn(async move { engine.run(items, tx, cancel).await })
     };
 
-    let (mut found, mut missing, mut failed, mut done) = (0usize, 0usize, 0usize, 0usize);
+    let (mut found, mut missing, mut failed, mut unanswered, mut done) = (0usize, 0usize, 0usize, 0usize, 0usize);
     let total = work.len();
     while let Some(ev) = rx.recv().await {
         match ev {
@@ -272,6 +272,16 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
             Event::Challenge { provider, .. } => {
                 if !a.json {
                     eprintln!("  ! {provider} wants a bot check passed; the desktop app opens a window for that");
+                }
+            }
+            Event::Failed { idx, notes } => {
+                done += 1;
+                unanswered += 1;
+                let t = &tracks[idx];
+                if a.json {
+                    println!("{}", json!({"path": t.path, "status": "failed", "notes": notes}));
+                } else {
+                    eprintln!("[{done}/{total}] ! {} — {} (no source answered; try again later)", t.query.artist, t.query.title);
                 }
             }
             Event::NotFound { idx, notes } => {
@@ -324,7 +334,7 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
     }
     runner.await.context("search task panicked")?;
     if !a.json {
-        eprintln!("\nfound {found}, not found {missing}, write errors {failed}, already had lyrics {skipped}");
+        eprintln!("\nfound {found}, not found {missing}, no source answered {unanswered}, write errors {failed}, already had lyrics {skipped}");
     }
     Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
