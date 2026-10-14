@@ -1,0 +1,8 @@
+id = "metallum"
+name = "Metal Archives (via the shared metallum CLI)"
+# Runs with this folder as the working directory. Needs the `metallum` executable
+# (set METALLUM_BIN, or put it on PATH / ~/.local/bin).
+command = ["python3", "plugin.py"]
+# Cold lookups can take minutes (the metallum CLI waits politely between requests to Metal Archives).
+timeout_secs = 240
+max_parallel = 1

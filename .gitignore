@@ -1,0 +1,5 @@
+/target
+*.snap
+.DS_Store
+crates/gui/gen/
+lf-work/

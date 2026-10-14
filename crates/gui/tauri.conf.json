@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lyrixearch",
+  "version": "0.1.0",
+  "identifier": "dev.lyrixearch.desktop",
+  "build": {
+    "frontendDist": "./ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Music",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "publisher": "Lyrixearch contributors",
+    "copyright": "Copyright (c) Lyrixearch contributors. MIT License.",
+    "shortDescription": "Find lyrics for your music and embed them in the files",
+    "longDescription": "Lyrixearch searches many lyrics sources, matches them to your tracks, and embeds them in the audio files. Drop a folder, review, embed."
+  }
+}
