@@ -7,7 +7,6 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/deathrashed/lyrixearch"
-homepage = "https://github.com/deathrashed/lyrixearch"
 authors = ["Lyrixearch contributors"]
 readme = "README.md"
 keywords = ["lyrics", "music", "id3", "tagging", "tui"]

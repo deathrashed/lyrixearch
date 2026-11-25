@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 authors.workspace = true
 description = "Find lyrics for your music and embed them in the files (CLI and TUI)"
 
