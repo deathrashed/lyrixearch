@@ -331,6 +331,34 @@ impl Accounts {
         Ok(())
     }
 
+    /// While the sign-in window is open, notice when signing in has worked: then close the window
+    /// and say so (`account-signed-in`). Stops when the person closes the window.
+    pub fn watch_sign_in(this: std::sync::Arc<Self>, id: String) {
+        tauri::async_runtime::spawn(async move {
+            let Ok(s) = service(&id) else { return };
+            let home_host = s.home.split('/').nth(2).unwrap_or("");
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(15 * 60) {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let Some(w) = this.app.get_webview_window(&format!("acct-{}", s.id)) else { return };
+                if !w.is_visible().unwrap_or(false) {
+                    return;
+                }
+                // signing in ends back on the service's own player
+                if !w.url().ok().is_some_and(|u| u.host_str() == Some(home_host)) {
+                    continue;
+                }
+                let Ok(st) = this.run(s.id, "status", serde_json::json!({}), Duration::from_secs(12)).await else { continue };
+                if st.get("signedIn").and_then(Value::as_bool) == Some(true) {
+                    let _ = w.hide();
+                    let name = st.get("name").and_then(Value::as_str).map(str::to_string);
+                    let _ = this.app.emit("account-signed-in", serde_json::json!({ "id": s.id, "service": s.name, "name": name }));
+                    return;
+                }
+            }
+        });
+    }
+
     /// Run `op` in the service's page; the page must be the web player, so it is put back there first.
     pub async fn run(&self, id: &str, op: &str, args: Value, limit: Duration) -> Result<Value> {
         let s = service(id)?;

@@ -222,6 +222,11 @@ impl Engine {
     }
 
     /// Leave a source alone for as long as it asked.
+    /// Leave a source out for a while (the person skipped its bot check, for one).
+    pub fn set_aside(&self, id: &str, wait: Duration) {
+        self.cool_down(id, wait);
+    }
+
     fn cool_down(&self, id: &str, wait: Duration) {
         let mut map = self.penalties.lock().unwrap();
         let p = map.entry(id.to_string()).or_default();
@@ -382,6 +387,9 @@ impl Engine {
                     Ok(Err(e)) => {
                         if let Some(c) = e.downcast_ref::<providers::Challenge>() {
                             self.note_challenge(id, &c.url);
+                            // a check only a person can pass: leave the site out instead of asking on
+                            // every track (passing the check clears this, see `clear_penalty`)
+                            self.cool_down(id, Duration::from_secs(1800));
                         }
                         if let Some(r) = e.downcast_ref::<providers::RateLimited>() {
                             self.cool_down(id, r.retry_after);

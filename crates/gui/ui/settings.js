@@ -338,6 +338,14 @@
       const bar = $('#sw-body progress');
       if (bar) { bar.max = e.payload.total || 1; bar.value = e.payload.done; const b = bar.nextElementSibling; if (b) b.textContent = `${e.payload.total ? Math.round((e.payload.done / e.payload.total) * 100) : 0}%`; }
     });
+    // signing in worked (the app noticed and closed the window)
+    T.event.listen('account-signed-in', (e) => {
+      const { id, service, name } = e.payload;
+      acctState[id] = { signedIn: true, name };
+      if (!draft.providers.includes(id)) { draft.providers.push(id); scheduleSave(); }
+      toast(name ? `Signed in to ${service} as ${name}` : `Signed in to ${service}`);
+      if (section === 'accounts') render();
+    });
     // a sign-in window was closed: look again
     T.event.listen('accounts-changed', () => { for (const a of ACCOUNTS) checkAccount(a.id); });
     // the main window saved settings too (library folders): keep its changes in this draft

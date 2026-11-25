@@ -153,7 +153,15 @@ pub const BUILTINS: &[Builtin] = &[
     builtin("lyrics_ovh", "lyrics.ovh", "Plain lyrics, exact names only", 2, 400),
     // a small community site: one request at a time, with a pause
     builtin("metal_archives", "Metal Archives", "Metal lyrics, song by song", 1, 1200),
-    builtin("azlyrics", "AZLyrics", "Plain lyrics, large English catalogue", 1, 1500),
+    // opt-in: it answers with a captcha a person has to solve
+    Builtin {
+        id: "azlyrics",
+        name: "AZLyrics",
+        note: "Plain lyrics, large English catalogue; shows a captcha you solve once in a while",
+        inflight: 1,
+        gap_ms: 1500,
+        default_on: false,
+    },
     builtin("letras", "Letras", "Large catalogue, strong for Portuguese and Spanish music", 1, 800),
     builtin("ddg_search", "Web search (DuckDuckGo)", "Finds a supported page when the others miss", 1, 2500),
     account("spotify", "Spotify", "Synced lyrics, with your Spotify account (Settings → Accounts)"),

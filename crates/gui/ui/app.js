@@ -1469,6 +1469,10 @@
     const scale = Number(store.get('lf-scale')) || 1;
     if (scale !== 1) invoke('set_ui_scale', { scale }).catch(() => {});
     // settings saved in the settings window
+    T.event.listen('account-signed-in', (e) => {
+      const { service, name } = e.payload;
+      toast(name ? `Signed in to ${service} as ${name}. It is now a source.` : `Signed in to ${service}. It is now a source.`, 'good', 6000);
+    });
     T.event.listen('settings-changed', (e) => {
       S.settings = e.payload;
       S.replace = !!S.settings.config.overwrite;

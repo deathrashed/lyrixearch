@@ -75,6 +75,9 @@ pub struct Config {
     pub tag_clean_enabled: bool,
     /// Extra regex removed from titles before searching (applied after the built-in clean-up).
     pub tag_clean_pattern: Option<String>,
+    /// Settings-file revision, for one-off changes to older files (see `offer_new_providers`).
+    #[serde(default)]
+    pub config_rev: u32,
     /// Built-in sources this settings file has been offered. A source added in a later version is
     /// switched on once (appended to `providers`), so new sources reach existing setups.
     /// A file without this field predates it, so it knew the original sources.
@@ -104,6 +107,9 @@ pub struct Config {
     /// Desktop app, macOS: a drop zone opens under the menu bar icon while files are dragged near it.
     pub drop_shelf: bool,
 }
+
+/// The current settings-file revision.
+const CONFIG_REV: u32 = 2;
 
 fn original_builtins() -> Vec<String> {
     crate::providers::ORIGINAL_BUILTINS.iter().map(|s| s.to_string()).collect()
@@ -136,6 +142,7 @@ impl Default for Config {
             lastfm_api_key: None,
             tag_clean_enabled: true,
             tag_clean_pattern: None,
+            config_rev: CONFIG_REV,
             known_providers: crate::providers::builtin_ids(),
             word_timing: false,
             transcribe_engine: "local".into(),
@@ -217,6 +224,12 @@ impl Config {
     /// Switch on built-in sources added since this settings file was written (they go last), and
     /// remember that every current source has now been offered.
     pub fn offer_new_providers(&mut self) {
+        // rev 2: AZLyrics became opt-in (it always wants a captcha solved); files that got it
+        // switched on by itself lose it once
+        if self.config_rev < 2 {
+            self.providers.retain(|p| p != "azlyrics");
+        }
+        self.config_rev = CONFIG_REV;
         let removed = crate::providers::REMOVED_BUILTINS;
         self.providers.retain(|p| !removed.contains(&p.as_str()));
         self.known_providers.retain(|p| !removed.contains(&p.as_str()));
@@ -367,13 +380,15 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, old).unwrap();
         let mut c = Config::load_from(&path).unwrap();
-        assert_eq!(c.providers, ["lrclib", "lyricsfreak", "metal_archives", "azlyrics", "letras"], "removed sources go, new ones are added");
+        assert_eq!(c.providers, ["lrclib", "lyricsfreak", "metal_archives", "letras"], "removed sources go, new ones are added, AZLyrics is opt-in");
         assert!(!c.providers.contains(&"genius".to_string()), "a source the person turned off stays off");
-        // once offered, turning a new one off sticks
-        c.providers.retain(|p| p != "azlyrics");
+        // once offered, turning a new one off sticks; turning AZLyrics on sticks too
+        c.providers.retain(|p| p != "letras");
+        c.providers.push("azlyrics".into());
         std::fs::write(&path, toml::to_string(&c).unwrap()).unwrap();
         let again = Config::load_from(&path).unwrap();
-        assert!(!again.providers.contains(&"azlyrics".to_string()));
+        assert!(!again.providers.contains(&"letras".to_string()));
+        assert!(again.providers.contains(&"azlyrics".to_string()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

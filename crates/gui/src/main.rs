@@ -890,8 +890,13 @@ fn show_check(app: AppHandle) -> CmdResult<()> {
 
 /// Put the waiting bot check away; the source stays skipped for a while.
 #[tauri::command]
-fn dismiss_check(app: AppHandle) {
+fn dismiss_check(app: AppHandle, state: State<'_, AppState>) {
     browser::HiddenBrowser::hide(&app);
+    // skipped: leave that site out for the rest of the session instead of asking again
+    let mut inner = state.0.lock().unwrap();
+    if let (Some(p), Ok(engine)) = (inner.check_provider.take(), &inner.engine) {
+        engine.set_aside(&p, std::time::Duration::from_secs(6 * 3600));
+    }
 }
 
 /// Switch the web panel between the phone and desktop layout. The page is rebuilt with the
@@ -1171,8 +1176,10 @@ async fn account_status(accounts: State<'_, std::sync::Arc<accounts::Accounts>>,
 }
 
 #[tauri::command]
-fn account_sign_in(app: AppHandle, id: String) -> CmdResult<()> {
-    accounts::Accounts::sign_in(&app, &id).map_err(err)
+fn account_sign_in(app: AppHandle, accounts: State<'_, std::sync::Arc<accounts::Accounts>>, id: String) -> CmdResult<()> {
+    accounts::Accounts::sign_in(&app, &id).map_err(err)?;
+    accounts::Accounts::watch_sign_in(accounts.inner().clone(), id);
+    Ok(())
 }
 
 #[tauri::command]

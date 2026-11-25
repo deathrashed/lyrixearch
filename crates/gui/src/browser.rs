@@ -127,6 +127,26 @@ impl HiddenBrowser {
         let w = app.get_webview_window(LABEL).context("no check is waiting")?;
         w.show()?;
         w.set_focus()?;
+        // once the person has passed it, put the window away and clear the site, also when no
+        // lookup is waiting on it any more
+        let (w2, app2) = (w.clone(), app.clone());
+        tauri::async_runtime::spawn(async move {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(600) {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if !w2.is_visible().unwrap_or(false) {
+                    return;
+                }
+                if let Some(p) = Self::probe(&w2, false).await {
+                    if p.ready != "loading" && !p.challenge {
+                        let host = p.href.split('/').nth(2).unwrap_or("").to_string();
+                        let _ = w2.hide();
+                        let _ = app2.emit("check-cleared", CheckInfo { host });
+                        return;
+                    }
+                }
+            }
+        });
         Ok(())
     }
 
