@@ -172,6 +172,7 @@
         <span class="mono" id="progress-text" aria-live="polite"></span>
         <div class="meter" aria-hidden="true"><i id="meter-fill"></i></div>
       </div>
+      <button class="btn sm ghost" id="btn-log" aria-haspopup="dialog" aria-controls="session-log"><span data-icon="fileText"></span><span>Log</span></button>
     </footer>
   </div>
 
@@ -198,6 +199,14 @@
   </div>
 
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+  <div class="modal" id="session-log" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="log-title">
+      <header><h2 id="log-title">Session log</h2><span class="spacer-flex"></span><button class="btn icon sm ghost" id="log-close" aria-label="Close log" title="Close log"><span data-icon="x"></span></button></header>
+      <pre class="sbody log-lines" id="log-lines" aria-label="Session events" tabindex="0"></pre>
+      <footer><span class="spacer-flex"></span><button class="btn sm" id="log-copy"><span data-icon="copy"></span><span>Copy log</span></button><button class="btn sm ghost" id="log-clear"><span data-icon="trash"></span><span>Clear log</span></button></footer>
+    </div>
+  </div>
 
   <div class="modal" id="settings" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">

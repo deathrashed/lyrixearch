@@ -5,7 +5,7 @@ mod player;
 
 use anyhow::Context as _;
 use lyrixearch_core::providers::{self, ProviderInfo};
-use lyrixearch_core::{scan, tags, util, Config, Engine, Event, Lyrics, Track};
+use lyrixearch_core::{pending, scan, tags, util, Config, Engine, Event, Lyrics, SidecarEmbed, Track};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -39,7 +39,9 @@ struct Entry {
 
 struct Inner {
     cfg: Config,
-    engine: Arc<Engine>,
+    engine: CmdResult<Arc<Engine>>,
+    settings_write_error: Option<String>,
+    startup_notice: Option<String>,
     entries: Vec<Entry>,
     next_id: u64,
     cancel: Arc<AtomicBool>,
@@ -126,11 +128,34 @@ struct TrackList {
 }
 
 fn list(inner: &Inner, skipped: usize) -> TrackList {
-    let with = inner.entries.iter().filter(|e| e.track.has_lyrics).count();
-    TrackList {
-        tracks: inner.entries.iter().map(dto).collect(),
-        stats: Stats { total: inner.entries.len(), with_lyrics: with, missing: inner.entries.len() - with },
-        skipped,
+    TrackList { tracks: inner.entries.iter().map(dto).collect(), stats: stats(inner), skipped }
+}
+
+fn stats(inner: &Inner) -> Stats {
+    let with_lyrics = inner.entries.iter().filter(|e| e.track.has_lyrics).count();
+    let total = inner.entries.len();
+    Stats { total, with_lyrics, missing: total - with_lyrics }
+}
+
+fn emit_track(app: &AppHandle, state: &State<'_, AppState>, id: u64) -> Option<TrackDto> {
+    let track = state.0.lock().unwrap().entries.iter().find(|e| e.id == id).map(dto)?;
+    let _ = app.emit("track", &track);
+    Some(track)
+}
+
+fn update_pending(app: &AppHandle, update: impl FnOnce(&mut pending::Pending)) {
+    if let Err(e) = pending::update(update) {
+        let _ = app.emit("operation-warning", format!("Could not update pending lyrics: {e:#}"));
+    }
+}
+
+fn forget_pending(app: &AppHandle, paths: &[PathBuf]) {
+    if !paths.is_empty() {
+        update_pending(app, |map| {
+            for path in paths {
+                map.remove(path);
+            }
+        });
     }
 }
 
@@ -143,7 +168,7 @@ fn list_tracks(state: State<'_, AppState>) -> TrackList {
 
 /// Scan files/folders (recursively) and add the audio files to the working list.
 #[tauri::command]
-async fn add_paths(state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<TrackList> {
+async fn add_paths(app: AppHandle, state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<TrackList> {
     let known: HashSet<PathBuf> = state.0.lock().unwrap().entries.iter().map(|e| e.track.path.clone()).collect();
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     // Tag reading touches every file: keep it off the async threads.
@@ -165,25 +190,36 @@ async fn add_paths(state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<
     .map_err(err)?;
 
     let mut inner = state.0.lock().unwrap();
+    let pending = pending::load().unwrap_or_else(|e| {
+        let _ = app.emit("operation-warning", format!("Could not load pending lyrics: {e:#}"));
+        pending::Pending::new()
+    });
     for (track, embedded) in loaded {
         let id = inner.next_id;
         inner.next_id += 1;
-        inner.entries.push(Entry { id, track, status: Status::Idle, provider: None, found: None, embedded, note: None });
+        let found = pending.get(&util::pending_key(&track.path)).cloned();
+        let provider = found.as_ref().map(|lyrics| lyrics.source.clone());
+        let status = if found.is_some() { Status::Found } else { Status::Idle };
+        inner.entries.push(Entry { id, track, status, provider, found, embedded, note: None });
     }
     Ok(list(&inner, skipped))
 }
 
 #[tauri::command]
-fn remove_tracks(state: State<'_, AppState>, ids: Vec<u64>) -> TrackList {
+fn remove_tracks(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>) -> TrackList {
     let mut inner = state.0.lock().unwrap();
     let ids: HashSet<u64> = ids.into_iter().collect();
+    let discarded = inner.entries.iter().filter(|e| ids.contains(&e.id) && e.found.is_some()).map(|e| util::pending_key(&e.track.path)).collect::<Vec<_>>();
+    forget_pending(&app, &discarded);
     inner.entries.retain(|e| !ids.contains(&e.id));
     list(&inner, 0)
 }
 
 #[tauri::command]
-fn clear_tracks(state: State<'_, AppState>) -> TrackList {
+fn clear_tracks(app: AppHandle, state: State<'_, AppState>) -> TrackList {
     let mut inner = state.0.lock().unwrap();
+    let discarded = inner.entries.iter().filter(|e| e.found.is_some()).map(|e| util::pending_key(&e.track.path)).collect::<Vec<_>>();
+    forget_pending(&app, &discarded);
     inner.entries.clear();
     list(&inner, 0)
 }
@@ -205,8 +241,9 @@ struct Progress {
 /// `auto_write`, every hit is embedded immediately — the "find and embed everything" button.
 #[tauri::command]
 async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_write: bool, replace: Option<bool>) -> CmdResult<usize> {
-    let (engine, cancel, work, overwrite) = {
+    let (engine, cancel, work) = {
         let mut inner = state.0.lock().unwrap();
+        let engine = inner.engine.clone()?;
         let overwrite = inner.cfg.overwrite;
         let want: Option<HashSet<u64>> = if ids.is_empty() { None } else { Some(ids.into_iter().collect()) };
         let mut work = Vec::new();
@@ -225,9 +262,8 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
             }
         }
         inner.cancel.store(false, Ordering::Relaxed);
-        (inner.engine.clone(), inner.cancel.clone(), work, overwrite)
+        (engine, inner.cancel.clone(), work)
     };
-    let _ = overwrite;
     let total = work.len();
     if total == 0 {
         return Ok(0);
@@ -244,6 +280,7 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
     tauri::async_runtime::spawn(async move {
         let state = app2.state::<AppState>();
         let mut prog = Progress { done: 0, total, found: 0, written: 0, missed: 0, running: true };
+        let _ = app2.emit("session-log", format!("Started search for {total} track(s)"));
         let _ = app2.emit("progress", prog.clone());
         while let Some(ev) = rx.recv().await {
             if let Event::Challenge { provider, url } = &ev {
@@ -290,28 +327,37 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                     prog.done += 1;
                     prog.found += 1;
                     let lyrics = *lyrics;
-                    let (track, engine) = {
-                        let inner = state.0.lock().unwrap();
-                        (inner.entries.iter().find(|e| e.id == id).map(|e| e.track.clone()), inner.engine.clone())
+                    let track = {
+                        let mut inner = state.0.lock().unwrap();
+                        inner.entries.iter_mut().find(|e| e.id == id).map(|e| {
+                            let key = util::pending_key(&e.track.path);
+                            update_pending(&app2, |map| {
+                                map.insert(key, lyrics.clone());
+                            });
+                            e.found = Some(lyrics.clone());
+                            e.track.clone()
+                        })
                     };
                     let mut applied = None;
                     if auto_write {
                         if let Some(t) = track {
+                            let _ = app2.emit("session-log", format!("Found {} via {}", t.display_name(), lyrics.source));
                             let l = lyrics.clone();
-                            let r = tauri::async_runtime::spawn_blocking(move || engine.apply(&t, &l)).await;
-                            applied = Some(r.map_err(err).and_then(|r| r.map_err(err)));
+                            let engine = engine.clone();
+                            let r = tauri::async_runtime::spawn_blocking(move || apply_result(&engine, &t, &l)).await;
+                            applied = Some(r.map_err(err).flatten());
                         }
                     }
-                    let write_tags = state.0.lock().unwrap().cfg.write_tags;
                     if let Some(Ok(_)) = &applied {
                         prog.written += 1;
                     }
                     set(&state, id, |e| {
                         e.provider = Some(lyrics.source.clone());
                         match &applied {
-                            Some(Ok(_)) => {
+                            Some(Ok(tag_written)) => {
+                                forget_pending(&app2, &[util::pending_key(&e.track.path)]);
                                 e.status = Status::Written;
-                                if write_tags {
+                                if *tag_written {
                                     e.track.has_lyrics = true;
                                     e.embedded = lyrics.embed_text();
                                 }
@@ -326,14 +372,16 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                     });
                 }
             }
-            if let Some(d) = state.0.lock().unwrap().entries.iter().find(|e| e.id == id).map(dto) {
-                let _ = app2.emit("track", d);
-            }
+            emit_track(&app2, &state, id);
             let _ = app2.emit("progress", prog.clone());
         }
         prog.running = false;
+        let _ = app2.emit(
+            "session-log",
+            format!("Search finished: {}/{} completed, {} found, {} written, {} not found", prog.done, total, prog.found, prog.written, prog.missed),
+        );
         let _ = app2.emit("progress", prog);
-        let _ = app2.emit("stats", list(&state.0.lock().unwrap(), 0).stats);
+        let _ = app2.emit("stats", stats(&state.0.lock().unwrap()));
     });
     Ok(total)
 }
@@ -386,30 +434,40 @@ fn get_lyrics(state: State<'_, AppState>, id: u64) -> Option<LyricsView> {
     })
 }
 
+fn apply_result(engine: &Engine, track: &Track, lyrics: &Lyrics) -> CmdResult<bool> {
+    let applied = engine.apply(track, lyrics).map_err(err)?;
+    if !applied.tag_written && applied.sidecar.is_none() {
+        return Err("No lyrics written. Check the tag, sidecar and replace settings.".into());
+    }
+    Ok(applied.tag_written)
+}
+
 /// Write found lyrics for these tracks to disk (tags and/or sidecars, per settings).
 #[tauri::command]
 async fn apply_found(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>) -> CmdResult<usize> {
     let ids: HashSet<u64> = ids.into_iter().collect();
-    let (engine, jobs, write_tags) = {
+    let (engine, jobs) = {
         let inner = state.0.lock().unwrap();
         let jobs: Vec<(u64, Track, Lyrics)> = inner
             .entries
             .iter()
             .filter(|e| ids.is_empty() || ids.contains(&e.id))
-            .filter(|e| e.status == Status::Found)
+            .filter(|e| matches!(e.status, Status::Found | Status::Error))
             .filter_map(|e| e.found.clone().map(|l| (e.id, e.track.clone(), l)))
             .collect();
-        (inner.engine.clone(), jobs, inner.cfg.write_tags)
+        (inner.engine.clone()?, jobs)
     };
     let mut ok = 0;
     for (id, track, lyrics) in jobs {
         let eng = engine.clone();
         let l = lyrics.clone();
-        let r = tauri::async_runtime::spawn_blocking(move || eng.apply(&track, &l)).await.map_err(err)?;
+        let r = tauri::async_runtime::spawn_blocking(move || apply_result(&eng, &track, &l)).await.map_err(err)?;
         set(&state, id, |e| match &r {
-            Ok(_) => {
+            Ok(tag_written) => {
+                forget_pending(&app, &[util::pending_key(&e.track.path)]);
                 e.status = Status::Written;
-                if write_tags {
+                e.note = None;
+                if *tag_written {
                     e.track.has_lyrics = true;
                     e.embedded = lyrics.embed_text();
                 }
@@ -422,38 +480,50 @@ async fn apply_found(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>) 
         if r.is_ok() {
             ok += 1;
         }
-        if let Some(d) = state.0.lock().unwrap().entries.iter().find(|e| e.id == id).map(dto) {
-            let _ = app.emit("track", d);
-        }
+        emit_track(&app, &state, id);
     }
-    let _ = app.emit("stats", list(&state.0.lock().unwrap(), 0).stats);
+    let _ = app.emit("stats", stats(&state.0.lock().unwrap()));
     Ok(ok)
 }
 
-/// Save hand-edited lyrics into the file.
+/// Save the editor contents, preserving timing when saving an unchanged found result.
 #[tauri::command]
-async fn save_lyrics(app: AppHandle, state: State<'_, AppState>, id: u64, text: String) -> CmdResult<TrackDto> {
-    let (path, keep) = {
-        let inner = state.0.lock().unwrap();
-        let e = inner.entries.iter().find(|e| e.id == id).context("unknown track").map_err(err)?;
-        (e.track.path.clone(), inner.cfg.keep_mtime)
-    };
+async fn save_lyrics(app: AppHandle, state: State<'_, AppState>, id: u64, text: String, from_found: Option<bool>) -> CmdResult<TrackDto> {
     let text = text.trim().to_string();
     if text.is_empty() {
         return Err("lyrics are empty — use “Remove lyrics” to clear them".into());
     }
+    let (path, keep, synced) = {
+        let inner = state.0.lock().unwrap();
+        let e = inner.entries.iter().find(|e| e.id == id).context("unknown track").map_err(err)?;
+        let synced = e
+            .found
+            .as_ref()
+            .filter(|lyrics| from_found == Some(true) && lyrics.embed_text().as_deref() == Some(text.as_str()))
+            .and_then(|lyrics| lyrics.synced.as_ref())
+            .filter(|text| lyrixearch_core::lrc::looks_synced(text))
+            .cloned();
+        (e.track.path.clone(), inner.cfg.keep_mtime, synced)
+    };
     let t = text.clone();
-    tauri::async_runtime::spawn_blocking(move || tags::write_lyrics(&path, &t, keep)).await.map_err(err)?.map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || match synced {
+        Some(synced) => tags::write_lyrics_with(&path, &t, Some(&synced), keep),
+        None => tags::write_lyrics(&path, &t, keep),
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)?;
     set(&state, id, |e| {
         e.track.has_lyrics = true;
         e.embedded = Some(text);
         e.status = Status::Written;
-        e.found = None;
+        if e.found.take().is_some() {
+            forget_pending(&app, &[util::pending_key(&e.track.path)]);
+        }
         e.note = None;
     });
-    let d = state.0.lock().unwrap().entries.iter().find(|e| e.id == id).map(dto).context("unknown track").map_err(err)?;
-    let _ = app.emit("track", d.clone());
-    let _ = app.emit("stats", list(&state.0.lock().unwrap(), 0).stats);
+    let d = emit_track(&app, &state, id).context("unknown track").map_err(err)?;
+    let _ = app.emit("stats", stats(&state.0.lock().unwrap()));
     Ok(d)
 }
 
@@ -484,11 +554,9 @@ async fn delete_lyrics(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>
                 e.note = Some(format!("{m:#}"));
             }),
         }
-        if let Some(d) = state.0.lock().unwrap().entries.iter().find(|e| e.id == id).map(dto) {
-            let _ = app.emit("track", d);
-        }
+        emit_track(&app, &state, id);
     }
-    let _ = app.emit("stats", list(&state.0.lock().unwrap(), 0).stats);
+    let _ = app.emit("stats", stats(&state.0.lock().unwrap()));
     Ok(n)
 }
 
@@ -501,6 +569,7 @@ struct Settings {
     engines: Vec<&'static str>,
     plugins_dir: String,
     config_path: String,
+    startup_notice: Option<String>,
 }
 
 fn settings_of(cfg: &Config) -> Settings {
@@ -510,21 +579,26 @@ fn settings_of(cfg: &Config) -> Settings {
         engines: util::SEARCH_ENGINES.to_vec(),
         plugins_dir: Config::plugins_dir().display().to_string(),
         config_path: Config::path().map(|p| p.display().to_string()).unwrap_or_default(),
+        startup_notice: None,
     }
 }
 
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Settings {
-    settings_of(&state.0.lock().unwrap().cfg)
+    let mut inner = state.0.lock().unwrap();
+    Settings { startup_notice: inner.startup_notice.take(), ..settings_of(&inner.cfg) }
 }
 
 #[tauri::command]
 fn set_settings(state: State<'_, AppState>, config: Config) -> CmdResult<Settings> {
+    let mut inner = state.0.lock().unwrap();
+    if let Some(error) = &inner.settings_write_error {
+        return Err(error.clone());
+    }
     let engine = Engine::with_cookies(config.clone(), jar()).map_err(err)?;
     config.save().map_err(err)?;
-    let mut inner = state.0.lock().unwrap();
     inner.cfg = config;
-    inner.engine = engine;
+    inner.engine = Ok(engine);
     Ok(settings_of(&inner.cfg))
 }
 
@@ -534,40 +608,21 @@ fn install_plugin(state: State<'_, AppState>, dir: String) -> CmdResult<Settings
     let src = PathBuf::from(&dir);
     let loaded = ExternalProvider::load(&src).map_err(err)?;
     let dest = Config::plugins_dir().join(src.file_name().context("bad folder name").map_err(err)?);
-    copy_dir(&src, &dest).map_err(err)?;
-    let id = loaded.manifest().id.clone();
     let mut inner = state.0.lock().unwrap();
-    if !inner.cfg.providers.contains(&id) {
-        inner.cfg.providers.push(id);
-        let cfg = inner.cfg.clone();
-        cfg.save().map_err(err)?;
-        inner.engine = Engine::with_cookies(cfg, jar()).map_err(err)?;
+    if let Some(error) = &inner.settings_write_error {
+        return Err(error.clone());
     }
+    util::copy_dir(&src, &dest).map_err(err)?;
+    let id = loaded.manifest().id.clone();
+    let mut cfg = inner.cfg.clone();
+    if !cfg.providers.contains(&id) {
+        cfg.providers.push(id);
+    }
+    let engine = Engine::with_cookies(cfg.clone(), jar()).map_err(err)?;
+    cfg.save().map_err(err)?;
+    inner.cfg = cfg;
+    inner.engine = Ok(engine);
     Ok(settings_of(&inner.cfg))
-}
-
-fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for e in std::fs::read_dir(from)? {
-        let e = e?;
-        if e.file_name() == "__pycache__" {
-            continue;
-        }
-        let (src, dst) = (e.path(), to.join(e.file_name()));
-        if src.is_dir() {
-            copy_dir(&src, &dst)?;
-        } else {
-            std::fs::copy(&src, &dst)?;
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn health_check(state: State<'_, AppState>) -> CmdResult<()> {
-    let engine = state.0.lock().unwrap().engine.clone();
-    drop(engine);
-    Ok(())
 }
 
 #[derive(Serialize)]
@@ -660,6 +715,7 @@ async fn open_challenge(app: AppHandle, state: State<'_, AppState>, url: String,
         let _ = w.set_focus();
         return Ok(());
     }
+    let engine = state.0.lock().unwrap().engine.clone()?;
     let u = parse_url(&url)?;
     let w = tauri::WebviewWindowBuilder::new(&app, "challenge", WebviewUrl::External(u.clone()))
         .title(format!("Verify you are human: {}", u.host_str().unwrap_or("")))
@@ -667,7 +723,6 @@ async fn open_challenge(app: AppHandle, state: State<'_, AppState>, url: String,
         .user_agent(lyrixearch_core::providers::web::BROWSER_UA)
         .build()
         .map_err(err)?;
-    let engine = state.0.lock().unwrap().engine.clone();
     let jar = jar();
     tauri::async_runtime::spawn(async move {
         for _ in 0..300 {
@@ -814,41 +869,36 @@ async fn embed_sidecar(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>
     let (jobs, cfg) = {
         let inner = state.0.lock().unwrap();
         let ids: HashSet<u64> = ids.into_iter().collect();
-        (inner.entries.iter().filter(|e| ids.contains(&e.id)).map(|e| (e.id, e.track.path.clone(), e.track.has_lyrics)).collect::<Vec<_>>(), inner.cfg.clone())
+        (inner.entries.iter().filter(|e| ids.contains(&e.id)).map(|e| (e.id, e.track.clone())).collect::<Vec<_>>(), inner.cfg.clone())
     };
     let mut res = SidecarResult { embedded: 0, missing: 0, kept: 0, failed: 0 };
-    for (id, path, has) in jobs {
-        if has && !replace {
-            res.kept += 1;
-            continue;
-        }
+    for (id, track) in jobs {
         let cfg = cfg.clone();
         let kind = kind.clone();
-        let outcome = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Option<String>> {
-            let Some((_, raw)) = providers::find_sidecar_kind(&path, kind.as_deref()) else { return Ok(None) };
-            let plain = if lyrixearch_core::lrc::looks_synced(&raw) { lyrixearch_core::lrc::strip_timestamps(&raw) } else { raw };
-            let text = lyrixearch_core::output::postprocess(&plain, &cfg);
-            if text.trim().is_empty() {
-                return Ok(None);
-            }
-            tags::write_lyrics(&path, &text, cfg.keep_mtime)?;
-            Ok(Some(text))
+        let outcome = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<_> {
+            let outcome = lyrixearch_core::output::embed_from_sidecar(&track, &cfg, replace, kind.as_deref(), false)?;
+            let embedded = if matches!(outcome, SidecarEmbed::Embedded(_)) { tags::read_lyrics(&track.path) } else { None };
+            Ok((outcome, embedded))
         })
         .await
         .map_err(err)?;
         match outcome {
-            Ok(Some(text)) => {
+            Ok((SidecarEmbed::Embedded(_), embedded)) => {
                 res.embedded += 1;
                 set(&state, id, |e| {
                     e.track.has_lyrics = true;
-                    e.embedded = Some(text);
-                    e.found = None;
+                    e.embedded = embedded;
+                    if e.found.take().is_some() {
+                        forget_pending(&app, &[util::pending_key(&e.track.path)]);
+                    }
                     e.provider = Some("file".into());
                     e.status = Status::Written;
                     e.note = None;
                 });
             }
-            Ok(None) => res.missing += 1,
+            Ok((SidecarEmbed::NoFile, _)) => res.missing += 1,
+            Ok((SidecarEmbed::AlreadyHad, _)) => res.kept += 1,
+            Ok((SidecarEmbed::WouldEmbed(_), _)) => unreachable!("dry run is disabled"),
             Err(m) => {
                 res.failed += 1;
                 set(&state, id, |e| {
@@ -857,11 +907,9 @@ async fn embed_sidecar(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>
                 });
             }
         }
-        if let Some(d) = state.0.lock().unwrap().entries.iter().find(|e| e.id == id).map(dto) {
-            let _ = app.emit("track", d);
-        }
+        emit_track(&app, &state, id);
     }
-    let _ = app.emit("stats", list(&state.0.lock().unwrap(), 0).stats);
+    let _ = app.emit("stats", stats(&state.0.lock().unwrap()));
     Ok(res)
 }
 
@@ -872,42 +920,69 @@ struct ExportResult {
     kept: usize,
     /// No lyrics for the track, or no synced lyrics when `.lrc` was asked for.
     none: usize,
+    failures: Vec<String>,
 }
 
 /// Write each track's lyrics (found or embedded) to a `.lrc` / `.txt` next to it.
 /// `kind` is `auto` (`.lrc` when synced, else `.txt`), `lrc` or `txt`.
 #[tauri::command]
-fn export_lyrics(state: State<'_, AppState>, ids: Vec<u64>, kind: Option<String>, replace: Option<bool>) -> CmdResult<ExportResult> {
+async fn export_lyrics(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, kind: Option<String>, replace: Option<bool>) -> CmdResult<ExportResult> {
     let mode = match kind.as_deref() {
         Some("lrc") => lyrixearch_core::Sidecar::Lrc,
         Some("txt") => lyrixearch_core::Sidecar::Txt,
         _ => lyrixearch_core::Sidecar::Auto,
     };
     let replace = replace.unwrap_or(true);
-    let inner = state.0.lock().unwrap();
     let ids: HashSet<u64> = ids.into_iter().collect();
-    let mut res = ExportResult { written: 0, kept: 0, none: 0 };
-    for e in inner.entries.iter().filter(|e| ids.contains(&e.id)) {
-        let lyrics = match (&e.found, &e.embedded) {
-            (Some(l), _) => l.clone(),
-            (None, Some(text)) => Lyrics { plain: Some(text.clone()), ..Default::default() },
-            _ => {
+    let (jobs, cfg) = {
+        let inner = state.0.lock().unwrap();
+        let jobs = inner
+            .entries
+            .iter()
+            .filter(|e| ids.contains(&e.id))
+            .map(|e| {
+                let lyrics = e.found.clone().or_else(|| e.embedded.as_ref().map(|text| Lyrics { plain: Some(text.clone()), ..Default::default() }));
+                (e.track.path.clone(), lyrics, e.found.is_some())
+            })
+            .collect::<Vec<_>>();
+        (jobs, inner.cfg.clone())
+    };
+    let (res, exported) = tauri::async_runtime::spawn_blocking(move || {
+        use std::io::{ErrorKind, Write};
+        let mut res = ExportResult { written: 0, kept: 0, none: 0, failures: Vec::new() };
+        let mut exported = Vec::new();
+        for (audio, lyrics, found) in jobs {
+            let Some((path, body)) = lyrics.and_then(|lyrics| lyrixearch_core::output::sidecar_plan(&audio, &lyrics, mode, &cfg)) else {
                 res.none += 1;
                 continue;
-            }
-        };
-        match lyrixearch_core::output::sidecar_plan(&e.track.path, &lyrics, mode, &inner.cfg) {
-            Some((path, body)) => {
-                if path.exists() && !replace {
-                    res.kept += 1;
-                    continue;
+            };
+            let written = if replace {
+                lyrixearch_core::atomic::write(&path, body.as_bytes())
+            } else {
+                match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(mut file) => file.write_all(body.as_bytes()).map_err(anyhow::Error::from),
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                        res.kept += 1;
+                        continue;
+                    }
+                    Err(e) => Err(e.into()),
                 }
-                std::fs::write(path, body).map_err(err)?;
-                res.written += 1;
+            };
+            match written {
+                Ok(()) => {
+                    res.written += 1;
+                    if found {
+                        exported.push(util::pending_key(&audio));
+                    }
+                }
+                Err(e) => res.failures.push(format!("{}: {e:#}", path.display())),
             }
-            None => res.none += 1,
         }
-    }
+        (res, exported)
+    })
+    .await
+    .map_err(err)?;
+    forget_pending(&app, &exported);
     Ok(res)
 }
 
@@ -1088,6 +1163,24 @@ const SELFTEST_JS: &str = r#"
 })();
 "#;
 
+fn config_load_detail(error: &anyhow::Error) -> String {
+    let cause = error.root_cause().to_string();
+    if let Some(location) = cause.lines().next().filter(|line| line.starts_with("TOML parse error at line ")) {
+        // The following lines from TOML can show the original value, including API keys.
+        return location.to_string();
+    }
+    if let Some(io_error) = error.downcast_ref::<std::io::Error>() {
+        return io_error.to_string();
+    }
+    let detail = error.chain().find_map(|cause| {
+        let text = cause.to_string();
+        ["tag_clean_pattern is not a valid regex", "min_score must be between 0 and 1", "invalid proxy url"]
+            .into_iter()
+            .find(|message| text.starts_with(message))
+    });
+    detail.unwrap_or("Invalid settings file").into()
+}
+
 fn main() {
     // WebKitGTK's DMA-BUF renderer fails on many Wayland/Mesa/NVIDIA setups with "Error 71 (Protocol error)";
     // switching it off is harmless elsewhere. A user's own setting wins.
@@ -1095,11 +1188,30 @@ fn main() {
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    let cfg = Config::load().unwrap_or_default();
-    let engine = Engine::with_cookies(cfg.clone(), jar()).unwrap_or_else(|_| Engine::with_cookies(Config::default(), jar()).expect("default config is valid"));
+    let mut settings_write_error = None;
+    let mut notices = Vec::new();
+    let cfg = Config::load().unwrap_or_else(|error| {
+        let notice = format!("Could not load settings ({}).", config_load_detail(&error));
+        match Config::quarantine_unreadable() {
+            Ok(Some(path)) => notices.push(format!("{notice} The original was moved to {}. Using defaults.", path.display())),
+            Ok(None) => notices.push(format!("{notice} Using defaults.")),
+            Err(error) => {
+                let message = format!("{notice} Could not back up the file. Settings saves are disabled for this session. {error:#}");
+                notices.push(message.clone());
+                settings_write_error = Some(message);
+            }
+        }
+        Config::default()
+    });
+    let engine = Engine::with_cookies(cfg.clone(), jar()).map_err(|error| format!("Could not start the search engine. Review your settings. {error:#}"));
+    if let Err(error) = &engine {
+        notices.push(error.clone());
+    }
     let state = AppState(Mutex::new(Inner {
         cfg,
         engine,
+        settings_write_error,
+        startup_notice: (!notices.is_empty()).then(|| notices.join("\n")),
         entries: Vec::new(),
         next_id: 1,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -1129,7 +1241,6 @@ fn main() {
             get_settings,
             set_settings,
             install_plugin,
-            health_check,
             test_providers,
             browser_show,
             browser_hide,
@@ -1230,4 +1341,23 @@ fn main() {
             #[cfg(not(any(target_os = "macos", target_os = "ios")))]
             let _ = (app, event);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toml_notice_preserves_location_without_echoing_config_values() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("lyrixearch-gui-config-{}", std::process::id()));
+        std::fs::create_dir(&dir)?;
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "lastfm_api_key = \"synthetic-fixture\" invalid\n")?;
+        let error = Config::load_from(&path).unwrap_err();
+        std::fs::remove_dir_all(dir)?;
+        let detail = config_load_detail(&error);
+        assert!(detail.starts_with("TOML parse error at line 1, column "));
+        assert!(!detail.contains("synthetic-fixture"));
+        Ok(())
+    }
 }

@@ -22,24 +22,20 @@
     for (let k = 1; k <= 5; k++) tracks.push(mk(a[0], a[1], `${a[2 + (k % 2)]} ${k}`, (i + k) % 3 === 0));
   });
   const lyricsOf = {};
+  const demoSynced = 'demo_synced';
+  const demoPlain = 'demo_plain';
+  const catalog = [
+    { id: demoSynced, name: 'Timed Lyrics', kind: 'builtin', note: 'Sample synced source' },
+    { id: demoPlain, name: 'Text Lyrics', kind: 'builtin', note: 'Sample plain source' },
+    { id: 'demo_plugin', name: 'Demo Plugin', kind: 'plugin', note: 'Preview fixture' },
+  ];
   const cfg = {
-    providers: ['local_files', 'genius', 'lrclib', 'lyricsfreak', 'ddg_search', 'netease', 'qqmusic', 'kugou', 'lyrics_ovh'],
+    providers: catalog.filter((p) => p.kind === 'builtin').map((p) => p.id),
     concurrency: 10, provider_timeout_secs: 8, penalty_max_failures: 3, penalty_window_secs: 60, penalty_cooldown_secs: 300,
     write_tags: true, sidecar: 'off', keep_mtime: true, overwrite: false, remove_section_tags: false, prepend_newline: false,
     proxy: null, min_score: 0.8, search_engine: 'google', library_dirs: ['/Users/demo/Music/Library'],
+    synced_only: false, tag_clean_enabled: true, tag_clean_pattern: null, lastfm_api_key: null,
   };
-  const catalog = [
-    ['local_files', 'Local files', 'builtin', '.lrc / .txt next to the track, or in a Lyrics folder'],
-    ['genius', 'Genius', 'builtin', 'Plain lyrics, wide catalogue'],
-    ['lrclib', 'LRCLIB', 'builtin', 'Open database with synced lyrics'],
-    ['lyricsfreak', 'LyricsFreak', 'builtin', 'Plain lyrics'],
-    ['ddg_search', 'Web search (DuckDuckGo)', 'builtin', 'Finds a supported page when the others miss'],
-    ['netease', 'NetEase Cloud Music', 'builtin', 'Synced lyrics, strong for Asian music'],
-    ['qqmusic', 'QQ Music', 'builtin', 'Synced lyrics'],
-    ['kugou', 'Kugou', 'builtin', 'Synced lyrics'],
-    ['lyrics_ovh', 'lyrics.ovh', 'builtin', 'Plain lyrics, exact names only'],
-    ['metallum', 'Metal Archives (via the shared metallum CLI)', 'plugin', '~/Library/Application Support/lyrixearch/plugins/metallum'],
-  ].map(([id, name, kind, note]) => ({ id, name, kind, note }));
   const settings = () => ({ config: cfg, providers: catalog, engines: ['google', 'google_ai', 'brave_ai', 'bing', 'duckduckgo', 'yahoo', 'yandex'], plugins_dir: '~/Library/Application Support/lyrixearch/plugins', config_path: '~/Library/Application Support/lyrixearch/config.toml' });
   const list = () => {
     const w = tracks.filter((t) => t.has_lyrics).length;
@@ -56,11 +52,19 @@
     clear_tracks: () => { tracks.length = 0; return list(); },
     remove_tracks: ({ ids }) => { ids.forEach((id) => { const i = tracks.findIndex((t) => t.id === id); if (i >= 0) tracks.splice(i, 1); }); return list(); },
     get_settings: () => settings(),
-    set_settings: ({ config }) => { Object.assign(cfg, config); return settings(); },
+    set_settings: ({ config }) => {
+      // Preview validation uses JavaScript; the desktop command uses the Rust regex engine.
+      if (config.tag_clean_pattern) {
+        try { new RegExp(config.tag_clean_pattern); }
+        catch { throw 'tag_clean_pattern is not a valid regex'; }
+      }
+      Object.assign(cfg, config);
+      return settings();
+    },
     install_plugin: () => settings(),
     test_providers: async () => {
       await new Promise((r) => setTimeout(r, 500));
-      return catalog.filter((p) => p.id !== 'local_files').map((p, i) => ({ id: p.id, ok: i !== 3, detail: i !== 3 ? 'ok' : 'blocked (HTTP 403)', millis: 200 + i * 130 }));
+      return catalog.map((p, i) => ({ id: p.id, ok: p.kind === 'builtin', detail: p.kind === 'builtin' ? 'ok' : 'plugin unavailable in preview', millis: 200 + i * 130 }));
     },
     get_lyrics: ({ id }) => {
       const t = tracks.find((x) => x.id === id);
@@ -76,22 +80,26 @@
       work.forEach((t) => { t.status = 'queued'; emit('track', { ...t }); });
       let done = 0, found = 0, written = 0, missed = 0;
       const prog = (running) => emit('progress', { done, total: work.length, found, written, missed, running });
+      if (!work.length) return 0;
+      emit('session-log', `Started search for ${work.length} track(s)`);
       prog(true);
       (async () => {
         for (const t of work) {
           if (cancelled) { t.status = 'idle'; done++; emit('track', { ...t }); continue; }
-          t.status = 'searching'; t.provider = 'lrclib'; emit('track', { ...t });
+          t.status = 'searching'; t.provider = cfg.providers[0] || demoSynced; emit('track', { ...t });
           await new Promise((r) => setTimeout(r, 250 + Math.random() * 450));
           done++;
           if (Math.random() < 0.8) {
-            found++; t.provider = ['lrclib', 'genius', 'netease', 'metallum'][Math.floor(Math.random() * 4)];
-            t.synced = t.provider === 'lrclib' || t.provider === 'netease'; t.score = 0.9 + Math.random() * 0.1;
+            const sources = cfg.synced_only ? cfg.providers.filter((id) => id === demoSynced) : cfg.providers;
+            found++; t.provider = sources[Math.floor(Math.random() * sources.length)] || demoSynced;
+            t.synced = t.provider === demoSynced; t.score = 0.9 + Math.random() * 0.1;
             lyricsOf[t.id] = { source: t.provider, url: 'https://example.invalid/song', matched_artist: t.artist, matched_title: t.title, score: t.score, plain: sample(t), synced: t.synced ? '[00:01.00]placeholder' : null };
-            if (auto_write) { t.status = 'written'; t.has_lyrics = true; written++; } else t.status = 'found';
-          } else { missed++; t.status = 'notfound'; t.note = 'genius: no match\nlrclib: no match'; }
+            if (auto_write) { emit('session-log', `Found ${t.name} via ${t.provider}`); t.status = 'written'; t.has_lyrics = true; written++; } else t.status = 'found';
+          } else { missed++; t.status = 'notfound'; t.note = cfg.providers.map((id) => `${id}: no match`).join('\n'); }
           emit('track', { ...t }); prog(true);
         }
         prog(false);
+        emit('session-log', `Search finished: ${done}/${work.length} completed, ${found} found, ${written} written, ${missed} not found`);
       })();
       return work.length;
     },

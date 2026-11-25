@@ -69,6 +69,44 @@
   const fmtTime = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage may be unavailable */ } } };
 
+  const logLines = [];
+  let logFrame = 0;
+
+  function renderLog() {
+    const pre = $('#log-lines');
+    const follow = pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 2;
+    pre.textContent = logLines.join('\n') || 'No events in this session.';
+    $('#log-copy').disabled = $('#log-clear').disabled = !logLines.length;
+    if (follow) pre.scrollTop = pre.scrollHeight;
+  }
+
+  function logEvent(message) {
+    const time = new Date().toLocaleTimeString();
+    const key = S.settings?.config?.lastfm_api_key?.trim();
+    const text = key ? String(message).split(key).join('[redacted]') : String(message);
+    for (const line of text.split(/\r?\n/)) logLines.push(`[${time}] ${line}`);
+    if (logLines.length > 2000) logLines.splice(0, logLines.length - 2000);
+    if (!$('#session-log').hidden && !logFrame) logFrame = requestAnimationFrame(() => { logFrame = 0; renderLog(); });
+  }
+
+  function wireLog() {
+    const dialog = $('#session-log');
+    const close = () => closeSheet(dialog);
+    $('#btn-log').onclick = () => {
+      openSheet(dialog, '#log-close');
+      renderLog();
+      $('#log-lines').scrollTop = $('#log-lines').scrollHeight;
+    };
+    $('#log-close').onclick = close;
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
+    dialog.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    $('#log-copy').onclick = async () => {
+      try { await clip.write(logLines.join('\n')); toast('Log copied to the clipboard', 'good'); }
+      catch { toast('Clipboard unavailable', 'bad'); }
+    };
+    $('#log-clear').onclick = () => { logLines.length = 0; renderLog(); $('#log-close').focus(); };
+  }
+
   function toast(msg, kind = '', ms = 4200) {
     const el = document.createElement('div');
     el.className = 'toast';
@@ -704,7 +742,9 @@
       if (r.written) parts.push(`Wrote ${r.written} ${kindName()} file${r.written === 1 ? '' : 's'} next to the tracks`);
       if (r.kept) parts.push(`${r.kept} already existed`);
       if (r.none) parts.push(S.kind === 'lrc' ? `${r.none} had no synced lyrics` : `${r.none} had no lyrics`);
-      toast(parts.join(' · ') || 'Nothing to write', r.written ? 'good' : '');
+      for (const failure of r.failures || []) parts.push(failure);
+      if (parts.length) logEvent(parts.join('\n'));
+      toast(parts.join(' · ') || 'Nothing to write', r.failures?.length ? 'bad' : r.written ? 'good' : '', r.failures?.length ? 12000 : 4200);
     } catch (e) { toast(errText(e), 'bad', 7000); }
   }
 
@@ -745,7 +785,7 @@
 
   function providerOrder() {
     const cat = new Map(S.settings.providers.map((p) => [p.id, p]));
-    const on = draft.providers.filter((id) => cat.has(id)).map((id) => ({ ...cat.get(id), enabled: true }));
+    const on = draft.providers.map((id) => ({ ...(cat.get(id) || { id, name: id, note: 'Source unavailable' }), enabled: true }));
     const off = S.settings.providers.filter((p) => !draft.providers.includes(p.id)).map((p) => ({ ...p, enabled: false }));
     return [...on, ...off];
   }
@@ -765,6 +805,12 @@
       row('concurrency', 'Simultaneous searches', 'Tracks searched at the same time', rng('concurrency', 1, 20, 1)),
       row('provider_timeout_secs', 'Source timeout', 'Seconds to wait for one source before moving on', rng('provider_timeout_secs', 2, 30, 1)),
       row('min_score', 'Match strictness', 'Minimum similarity for a result to be accepted', rng('min_score', 0.5, 1, 0.05)),
+      row('synced_only', 'Synced lyrics only', 'Accept results with timed lines', sw('synced_only')),
+      row('tag_clean_enabled', 'Clean track titles', 'Remove common edition and release labels before searching', sw('tag_clean_enabled')),
+      row('tag_clean_pattern', 'Extra title cleanup', 'Optional regular expression to remove from track titles',
+        `<div class="setting-field"><input id="f-tag_clean_pattern" type="text" data-k="tag_clean_pattern" value="${esc(g.tag_clean_pattern || '')}" spellcheck="false" aria-describedby="tag-clean-error"><span id="tag-clean-error" class="setting-error" role="alert"></span></div>`),
+      row('lastfm_api_key', 'Last.fm API key', 'Optional, enables artist and title corrections',
+        '<input id="f-lastfm_api_key" type="password" data-k="lastfm_api_key" autocomplete="off" spellcheck="false">'),
       row('write_tags', 'Write lyrics into the files', 'Embed in the audio tags (ID3 USLT, Vorbis, MP4)', sw('write_tags')),
       row('sidecar', 'Also save a sidecar file', 'A .lrc or .txt next to the track', sel('sidecar', ['off', 'auto', 'lrc', 'txt'])),
       row('overwrite', 'Replace existing lyrics', 'Search and overwrite even when a track already has lyrics', sw('overwrite')),
@@ -774,6 +820,7 @@
       row('search_engine', 'Web search engine', 'Used by the Web tab', sel('search_engine', S.settings.engines)),
       row('proxy', 'Proxy', 'http:// or socks5://, empty for none', `<input id="f-proxy" type="text" data-k="proxy" value="${esc(g.proxy || '')}" placeholder="none">`),
     ].join('');
+    $('#f-lastfm_api_key').value = g.lastfm_api_key || '';
 
     const plugins = S.settings.providers.filter((p) => p.kind === 'plugin');
     $('#plugin-list').innerHTML = plugins.length
@@ -806,7 +853,12 @@
       if (!k) return;
       if (e.target.type === 'checkbox') draft[k] = e.target.checked;
       else if (e.target.type === 'range') { draft[k] = Number(e.target.value); const v = $(`[data-v="${k}"]`); if (v) v.textContent = e.target.value; }
-      else if (k === 'proxy') draft[k] = e.target.value.trim() || null;
+      else if (k === 'proxy' || k === 'lastfm_api_key') draft[k] = e.target.value.trim() || null;
+      else if (k === 'tag_clean_pattern') {
+        draft[k] = e.target.value.trim() ? e.target.value : null;
+        e.target.removeAttribute('aria-invalid');
+        $('#tag-clean-error').textContent = '';
+      }
       else draft[k] = e.target.value;
     });
     const tabs = $$('#stabs [role=tab]');
@@ -835,7 +887,16 @@
         toast('Settings saved', 'good');
         closeSettings();
         renderLibraries();
-      } catch (e) { toast(errText(e), 'bad', 8000); }
+      } catch (e) {
+        const message = errText(e);
+        if (message.startsWith('tag_clean_pattern is not a valid regex')) {
+          pick(tabs.find((b) => b.dataset.s === 'general'));
+          const field = $('#f-tag_clean_pattern');
+          field.setAttribute('aria-invalid', 'true');
+          $('#tag-clean-error').textContent = 'Enter a valid regular expression.';
+          field.focus();
+        } else toast(message, 'bad', 8000);
+      }
     };
     $('#plugin-install').onclick = async () => {
       const r = await T.dialog.open({ directory: true, title: 'Choose a plugin folder (it contains plugin.toml)' });
@@ -928,6 +989,7 @@
   // ───────────────────────── wiring ─────────────────────────
   function wire() {
     paintIcons();
+    wireLog();
     $('#rows').addEventListener('click', onRowClick);
     $('#table').addEventListener('scroll', renderRows, { passive: true });
     new ResizeObserver(() => renderRows()).observe($('#table'));
@@ -1035,7 +1097,8 @@
     $('#edit-save').onclick = async () => {
       const ta = $('#edit-text');
       try {
-        await invoke('save_lyrics', { id: Number(ta.dataset.id), text: ta.value });
+        const fromFound = !!S.detail?.found?.plain && ta.value.trim() === S.detail.found.plain.trim();
+        await invoke('save_lyrics', { id: Number(ta.dataset.id), text: ta.value, fromFound });
         toast('Saved to the file', 'good');
         setActive(Number(ta.dataset.id));
       } catch (e) { toast(errText(e), 'bad', 7000); }
@@ -1110,6 +1173,7 @@
     S.kind = ['auto', 'lrc', 'txt'].includes(store.get('lf-kind')) ? store.get('lf-kind') : 'auto';
     invoke('get_settings').then((s) => {
       S.settings = s;
+      if (s.startup_notice) { logEvent(s.startup_notice); toast(s.startup_notice, 'bad', 15000); }
       S.replace = !!s.config.overwrite;
       renderTop();
       $('#web-engine').innerHTML = engineOptions(s.engines, s.config.search_engine);
@@ -1121,9 +1185,15 @@
     setTheme(store.get('lf-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
 
     // events from the backend
+    T.event.listen('session-log', (e) => logEvent(e.payload));
+    T.event.listen('operation-warning', (e) => { logEvent(e.payload); toast(e.payload, 'bad', 8000); });
     T.event.listen('track', (e) => {
       const t = e.payload;
       S.tracks.set(t.id, t);
+      if (t.status === 'found') logEvent(`Found ${t.name} via ${t.provider}`);
+      if (t.status === 'notfound') logEvent(`Not found: ${t.name}${t.note ? '\n' + t.note : ''}`);
+      if (t.status === 'error') logEvent(`Error: ${t.name}${t.note ? '\n' + t.note : ''}`);
+      if (t.status === 'written') logEvent(`Wrote lyrics for ${t.name}`);
       if (t.status === 'searching') S.current = `${t.title}${t.provider ? ' via ' + t.provider : ''}`;
       computeView();
       recount();
@@ -1138,10 +1208,14 @@
     // A source wants a bot check passed: a browser window opens, solves itself if it can, and the engine reuses its cookies.
     T.event.listen('challenge', (e) => {
       const { provider, url } = e.payload;
+      logEvent(`Bot check requested by ${provider}`);
       toast(`${provider} wants a quick check. A window opened: pass it and close it, searching carries on.`);
-      invoke('open_challenge', { url, provider }).catch((err) => toast(errText(err), 'bad'));
+      invoke('open_challenge', { url, provider }).catch((err) => { logEvent(`Bot check error: ${errText(err)}`); toast(errText(err), 'bad'); });
     });
-    T.event.listen('challenge-done', (e) => toast(`${e.payload}: check finished, the source is back in use`, 'good'));
+    T.event.listen('challenge-done', (e) => {
+      logEvent(`Bot check finished for ${e.payload}`);
+      toast(`${e.payload}: check finished, the source is back in use`, 'good');
+    });
     T.event.listen('player', (e) => {
       S.player = e.payload;
       if (e.payload.state === 'error' && e.payload.error) toast(e.payload.error, 'bad', 6000);
