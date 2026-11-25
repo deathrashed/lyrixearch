@@ -99,10 +99,17 @@ const SPOTIFY_OPS: &str = r#"
     return oset.apply(this, arguments);
   };
   // the player shows either its log-in button or the account menu once it has started
-  const signedOut = async () => {
-    for (let i = 0; i < 40 && !document.querySelector('[data-testid="login-button"], [data-testid="user-widget-link"]'); i++) await sleep(250);
-    return !!document.querySelector('[data-testid="login-button"]');
+  const session = async () => {
+    for (let i = 0; i < 60 && !document.querySelector('[data-testid="login-button"], [data-testid="user-widget-link"]'); i++) await sleep(250);
+    if (document.querySelector('[data-testid="user-widget-link"]')) return 'in';
+    return document.querySelector('[data-testid="login-button"]') ? 'out' : 'not started';
   };
+  const needSession = async () => {
+    const st = await session();
+    if (st === 'out') throw new Error('not signed in to Spotify: Settings → Accounts');
+    if (st === 'not started') throw new Error('the Spotify web player did not start');
+  };
+  const secs = (t) => (t || '').trim().split(':').reduce((a, n) => a * 60 + Number(n), 0);
   const auth = async () => {
     for (let i = 0; i < 60 && !token; i++) await sleep(250);
     if (!token) throw new Error('the Spotify web player has not started yet');
@@ -118,17 +125,39 @@ const SPOTIFY_OPS: &str = r#"
   };
   OPS = {
     status: async () => {
-      if (await signedOut()) return { signedIn: false };
+      const st = await session();
+      if (st !== 'in') return { signedIn: false, error: st === 'not started' ? 'the web player did not start' : undefined };
       const me = await api('https://api.spotify.com/v1/me').catch(() => null);
       return { signedIn: !!me, name: me && (me.display_name || me.id) };
     },
+    // the player's own search page, opened inside the running player (no reload); the public Web API
+    // search answers web-player tokens with "slow down"
     search: async ({ artist, title }) => {
-      if (await signedOut()) throw new Error('not signed in to Spotify: Settings → Accounts');
-      const r = await api('https://api.spotify.com/v1/search?type=track&limit=10&q=' + encodeURIComponent('track:' + title + ' artist:' + artist));
-      const items = (r && r.tracks && r.tracks.items) || [];
-      return { tracks: items.map((t) => ({ id: t.id, title: t.name, artist: (t.artists && t.artists[0] && t.artists[0].name) || '', album: (t.album && t.album.name) || '', duration_ms: t.duration_ms, url: t.external_urls && t.external_urls.spotify })) };
+      await needSession();
+      const path = '/search/' + encodeURIComponent(artist + ' ' + title) + '/tracks';
+      const before = new Set([...document.querySelectorAll('[data-testid="tracklist-row"]')]);
+      history.pushState({}, '', path);
+      dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+      let rows = [];
+      for (let i = 0; i < 40; i++) {
+        await sleep(250);
+        rows = [...document.querySelectorAll('[data-testid="tracklist-row"]')].filter((r) => !before.has(r));
+        if (rows.length && location.pathname === path) break;
+      }
+      await sleep(300);
+      rows = [...document.querySelectorAll('[data-testid="tracklist-row"]')];
+      const tracks = rows.slice(0, 12).map((row) => {
+        const t = row.querySelector('a[href*="/track/"]');
+        const id = t && (t.getAttribute('href').match(/\/track\/([A-Za-z0-9]+)/) || [])[1];
+        const artists = [...row.querySelectorAll('a[href*="/artist/"]')].map((a) => a.textContent.trim());
+        const album = row.querySelector('a[href*="/album/"]');
+        const dur = [...row.querySelectorAll('div, span')].map((e) => e.textContent.trim()).filter((x) => /^\d{1,2}:\d{2}$/.test(x)).pop();
+        return id && { id, title: t.textContent.trim(), artist: artists[0] || '', album: album ? album.textContent.trim() : '', duration_ms: dur ? secs(dur) * 1000 : null, url: 'https://open.spotify.com/track/' + id };
+      }).filter(Boolean);
+      return { tracks };
     },
     lyrics: async ({ id }) => {
+      await needSession();
       const r = await api('https://spclient.wg.spotify.com/color-lyrics/v2/track/' + id + '?format=json&vocalRemoval=false&market=from_token');
       if (!r || !r.lyrics) return {};
       return { synced: r.lyrics.syncType === 'LINE_SYNCED', lines: (r.lyrics.lines || []).map((l) => ({ ms: Number(l.startTimeMs), text: l.words })) };
