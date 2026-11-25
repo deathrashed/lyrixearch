@@ -40,3 +40,6 @@ block2 = "0.6.2"
 objc2 = "0.6.5"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSPasteboard", "NSResponder", "NSWindow", "NSGraphics", "NSView", "NSControl", "NSButton"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray", "NSGeometry"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18.2"

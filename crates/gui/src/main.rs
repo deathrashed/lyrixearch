@@ -3,6 +3,8 @@
 
 mod background;
 mod browser;
+#[cfg(target_os = "linux")]
+mod linux_panel;
 mod player;
 #[cfg(target_os = "macos")]
 mod shelf;
@@ -665,10 +667,16 @@ struct Settings {
     embedded_browser: bool,
 }
 
-/// Whether a web page can be shown inside the main window. On Linux, Tauri packs child webviews into
-/// the window's GTK box and ignores their position and size, so an embedded page would take half the
-/// window and squeeze the UI; pages open in the person's own browser there instead.
-const EMBEDDED_BROWSER: bool = !cfg!(target_os = "linux");
+/// Whether a web page can be shown inside the main window. Everywhere now: on Linux the page is
+/// placed by [`linux_panel`], since Tauri itself stacks child webviews there.
+const EMBEDDED_BROWSER: bool = true;
+
+/// Linux: position the page in the overlay (Tauri's own position and size calls do nothing there).
+#[cfg(target_os = "linux")]
+fn place_page(wv: &tauri::Webview, rect: &Rect) {
+    let z = rect.zoom();
+    linux_panel::place(wv, linux_panel::Place { x: rect.x * z, y: rect.y * z, w: rect.w * z, h: rect.h * z });
+}
 
 fn settings_of(cfg: &Config) -> Settings {
     Settings {
@@ -827,6 +835,8 @@ fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>,
     if let Some(wv) = app.get_webview("browser") {
         wv.set_position(pos).map_err(err)?;
         wv.set_size(size).map_err(err)?;
+        #[cfg(target_os = "linux")]
+        place_page(&wv, &rect);
         wv.show().map_err(err)?;
         if let Some(u) = url {
             let mut inner = state.0.lock().unwrap();
@@ -851,6 +861,8 @@ fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>,
         builder = builder.user_agent(MOBILE_UA);
     }
     let wv = window.add_child(builder, pos, size).map_err(err)?;
+    #[cfg(target_os = "linux")]
+    place_page(&wv, &rect);
     let _ = wv.set_zoom(zoom);
     state.0.lock().unwrap().browser_url = Some(u);
     Ok(())
