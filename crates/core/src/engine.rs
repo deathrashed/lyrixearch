@@ -1,14 +1,15 @@
 //! Orchestration: several tracks in flight, providers tried in order per track, slow or
 //! failing providers skipped for a while.
 
-use crate::clean::{clean_title, is_various_artists, strip_featuring};
+use crate::clean::{clean_title, is_various_artists, strip_featuring, strip_trailing_brackets, unsuitable};
 use crate::config::Config;
+use crate::lastfm;
 use crate::model::{Lyrics, Query, Track};
 use crate::output;
 use crate::providers::{self, Provider};
 use crate::tags;
 use anyhow::{Context, Result};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -78,7 +79,18 @@ pub struct Engine {
     jar: Arc<reqwest::cookie::Jar>,
     limiters: HashMap<String, Arc<Limiter>>,
     challenges: Mutex<ChallengeBook>,
+    /// `cfg.tag_clean_pattern`, compiled once.
+    extra_clean: Option<regex::Regex>,
+    /// Last.fm corrections already asked for, keyed by lower-cased `(artist, title)`.
+    corrections: Mutex<HashMap<ArtistTitle, Option<ArtistTitle>>>,
 }
+
+/// An `(artist, title)` pair.
+type ArtistTitle = (String, String);
+
+/// Sources that only look at files beside the track, so they still run for a track whose names
+/// are placeholders.
+const NAME_FREE_SOURCES: &[&str] = &["local_files"];
 
 /// Caps how many requests one source gets at once and spaces their starts.
 struct Limiter {
@@ -130,6 +142,14 @@ impl Engine {
                 .with_context(|| format!("unknown provider `{id}` (known: {})", known.iter().map(|p| p.id()).collect::<Vec<_>>().join(", ")))?;
             ordered.push(p.clone());
         }
+        Self::with_providers(cfg, ordered, jar)
+    }
+
+    /// Build an engine around an explicit, ordered list of sources (`cfg.providers` is not consulted).
+    /// Front ends use [`Engine::new`]; this is for tests and embedding.
+    pub fn with_providers(cfg: Config, ordered: Vec<Arc<dyn Provider>>, jar: Arc<reqwest::cookie::Jar>) -> Result<Arc<Self>> {
+        cfg.validate()?;
+        let extra_clean = cfg.tag_clean_pattern.as_deref().filter(|s| !s.trim().is_empty()).map(regex::Regex::new).transpose()?;
         let mut b = reqwest::Client::builder()
             .gzip(true)
             .cookie_provider(jar.clone())
@@ -147,6 +167,8 @@ impl Engine {
             limiters,
             jar,
             challenges: Mutex::new(ChallengeBook::default()),
+            extra_clean,
+            corrections: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -225,29 +247,80 @@ impl Engine {
         self.penalties.lock().unwrap().entry(id.to_string()).or_default().failures.clear();
     }
 
-    /// Query variants for one provider: cleaned first, then album-artist and raw fallbacks.
-    fn variants(q: &Query) -> Vec<Query> {
-        let mut out = Vec::new();
-        let cleaned = Query { title: clean_title(&strip_featuring(&q.title)), artist: strip_featuring(&q.artist), ..q.clone() };
-        out.push(cleaned.clone());
+    /// Query variants for one provider, most specific first: the cleaned names, the album artist
+    /// for a "Various Artists" track, the title without any trailing brackets, then the raw title.
+    /// Duplicates are dropped.
+    fn variants(&self, q: &Query) -> Vec<Query> {
+        let base = strip_featuring(&q.title);
+        let mut title = if self.cfg.tag_clean_enabled { clean_title(&base) } else { base.trim().to_string() };
+        if let Some(rx) = &self.extra_clean {
+            let t = rx.replace_all(&title, "").trim().to_string();
+            if !t.is_empty() {
+                title = t;
+            }
+        }
+        let cleaned = Query { title, artist: strip_featuring(&q.artist), ..q.clone() };
+        let mut out = vec![cleaned.clone()];
         if is_various_artists(&q.artist) {
             if let Some(aa) = q.album_artist.as_deref().filter(|a| !is_various_artists(a)) {
                 out.push(Query { artist: aa.to_string(), ..cleaned.clone() });
             }
         }
-        if cleaned.title != q.title {
-            out.push(Query { title: q.title.clone(), ..cleaned });
+        let bare = strip_trailing_brackets(&cleaned.title);
+        if !bare.is_empty() {
+            out.push(Query { title: bare, ..cleaned.clone() });
         }
-        out
+        out.push(Query { title: q.title.clone(), ..cleaned });
+        dedupe(out)
+    }
+
+    /// [`Engine::variants`], preceded by the Last.fm-corrected names when a key is set.
+    async fn search_variants(&self, q: &Query, notes: &mut Vec<String>) -> Vec<Query> {
+        let mut out = Vec::new();
+        if let Some(key) = self.cfg.lastfm_api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+            match self.lastfm_correction(key, q).await {
+                Ok(Some((artist, title))) => {
+                    notes.push(format!("last.fm: corrected to {artist} - {title}"));
+                    out.extend(self.variants(&Query { artist, title, ..q.clone() }));
+                }
+                Ok(None) => {}
+                Err(e) => notes.push(format!("last.fm: {e:#}")),
+            }
+        }
+        out.extend(self.variants(q));
+        dedupe(out)
+    }
+
+    async fn lastfm_correction(&self, key: &str, q: &Query) -> Result<Option<(String, String)>> {
+        let cache_key = (q.artist.to_lowercase(), q.title.to_lowercase());
+        if let Some(hit) = self.corrections.lock().unwrap().get(&cache_key) {
+            return Ok(hit.clone());
+        }
+        let wait = Duration::from_secs(self.cfg.provider_timeout_secs.max(1));
+        let found = tokio::time::timeout(wait, lastfm::correct(&self.http, key, &q.artist, &q.title)).await.context("timed out")??;
+        self.corrections.lock().unwrap().insert(cache_key, found.clone());
+        Ok(found)
     }
 
     /// Try providers in order for one track; first usable result wins.
+    ///
+    /// Each provider gets one request budget for the whole track (all its query variants together);
+    /// time spent waiting for its turn under the rate limiter does not count against it.
     pub async fn find(&self, q: &Query, mut on_event: impl FnMut(&str, Option<&str>)) -> Outcome {
         let mut notes = Vec::new();
         let mut answered = 0usize;
-        let variants = Self::variants(q);
+        let not_worth_it = unsuitable(&q.artist, &q.title);
+        let variants = if not_worth_it.is_some() { self.variants(q) } else { self.search_variants(q, &mut notes).await };
         for p in &self.providers {
             let id = p.id();
+            if let Some(why) = not_worth_it.filter(|_| !NAME_FREE_SOURCES.contains(&id)) {
+                let why = format!("not searched: {why}");
+                on_event(id, Some(&why));
+                notes.push(format!("{id}: {why}"));
+                // a deliberate skip is an answer ("nothing to search for"), not a failure
+                answered += 1;
+                continue;
+            }
             if let Some(left) = self.penalty_remaining(id) {
                 let why = format!("penalised for another {}s", left.as_secs());
                 on_event(id, Some(&why));
@@ -256,15 +329,29 @@ impl Engine {
             }
             on_event(id, None);
             let budget = p.timeout().unwrap_or_else(|| Duration::from_secs(self.cfg.provider_timeout_secs.max(1)) * 2);
+            let mut spent = Duration::ZERO;
             let mut failed = false;
+            let mut only_unsynced = false;
             for v in &variants {
-                // our turn at this source: the permit is held while the request runs, outside the timeout
+                // our turn at this source: the permit is held while the request runs, outside the budget
                 let _turn = match self.limiters.get(id) {
                     Some(l) => l.acquire().await,
                     None => None,
                 };
-                match tokio::time::timeout(budget, p.fetch(&self.http, v, &self.cfg)).await {
+                let Some(left) = budget.checked_sub(spent).filter(|d| !d.is_zero()) else {
+                    notes.push(format!("{id}: timed out after {}s", budget.as_secs()));
+                    failed = p.timeouts_count();
+                    break;
+                };
+                let started = Instant::now();
+                let result = tokio::time::timeout(left, p.fetch(&self.http, v, &self.cfg)).await;
+                spent += started.elapsed();
+                match result {
                     Ok(Ok(Some(mut l))) if l.has_text() => {
+                        if self.cfg.synced_only && !l.synced.as_deref().is_some_and(crate::lrc::looks_synced) {
+                            only_unsynced = true;
+                            continue;
+                        }
                         l.plain = l.embed_text();
                         self.record_success(id);
                         return Outcome::Found(Box::new(l));
@@ -292,7 +379,7 @@ impl Engine {
                 self.record_failure(id);
             } else {
                 self.record_success(id);
-                notes.push(format!("{id}: no match"));
+                notes.push(if only_unsynced { format!("{id}: only unsynced lyrics (synced only is on)") } else { format!("{id}: no match") });
                 answered += 1;
             }
         }
@@ -372,5 +459,229 @@ impl Engine {
             out.push((p.id().to_string(), r, t.elapsed()));
         }
         out
+    }
+}
+
+/// Keep the first of each case-insensitive `(artist, title)` pair, in order.
+fn dedupe(v: Vec<Query>) -> Vec<Query> {
+    let mut seen = HashSet::new();
+    v.into_iter().filter(|q| seen.insert((q.artist.to_lowercase(), q.title.to_lowercase()))).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::AtomicUsize;
+
+    /// What a mock source does on each call.
+    #[derive(Clone)]
+    enum Act {
+        Find { plain: Option<&'static str>, synced: Option<&'static str> },
+        Miss,
+        Fail,
+        RateLimit(u64),
+        Sleep(u64),
+    }
+
+    struct Mock {
+        id: &'static str,
+        act: Act,
+        calls: AtomicUsize,
+        seen: Mutex<Vec<(String, String)>>,
+        budget: Option<Duration>,
+    }
+
+    impl Mock {
+        fn new(id: &'static str, act: Act) -> Arc<Self> {
+            Arc::new(Self { id, act, calls: AtomicUsize::new(0), seen: Mutex::new(Vec::new()), budget: None })
+        }
+        fn with_budget(id: &'static str, act: Act, ms: u64) -> Arc<Self> {
+            Arc::new(Self { id, act, calls: AtomicUsize::new(0), seen: Mutex::new(Vec::new()), budget: Some(Duration::from_millis(ms)) })
+        }
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl Provider for Mock {
+        fn id(&self) -> &str {
+            self.id
+        }
+        fn timeout(&self) -> Option<Duration> {
+            self.budget
+        }
+        fn politeness(&self) -> Option<(usize, Duration)> {
+            Some((8, Duration::ZERO))
+        }
+        async fn fetch(&self, _http: &reqwest::Client, q: &Query, _cfg: &Config) -> Result<Option<Lyrics>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.seen.lock().unwrap().push((q.artist.clone(), q.title.clone()));
+            match self.act.clone() {
+                Act::Find { plain, synced } => {
+                    Ok(Some(Lyrics { plain: plain.map(String::from), synced: synced.map(String::from), source: self.id.into(), ..Default::default() }))
+                }
+                Act::Miss => Ok(None),
+                Act::Fail => anyhow::bail!("boom"),
+                Act::RateLimit(secs) => Err(providers::RateLimited { retry_after: Duration::from_secs(secs), reason: "slow down".into() }.into()),
+                Act::Sleep(ms) => {
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    const WORDS: &str = "first line of the song\nsecond line of the song";
+    const LRC: &str = "[00:01.00]first line of the song\n[00:02.00]second line of the song";
+
+    fn engine(cfg: Config, ps: &[Arc<Mock>]) -> Arc<Engine> {
+        let ps: Vec<Arc<dyn Provider>> = ps.iter().map(|p| p.clone() as Arc<dyn Provider>).collect();
+        Engine::with_providers(cfg, ps, Arc::new(reqwest::cookie::Jar::default())).unwrap()
+    }
+
+    fn q(artist: &str, title: &str) -> Query {
+        Query { artist: artist.into(), title: title.into(), ..Default::default() }
+    }
+
+    #[tokio::test]
+    async fn first_source_with_lyrics_wins_and_later_ones_are_not_asked() {
+        let a = Mock::new("a", Act::Miss);
+        let b = Mock::new("b", Act::Find { plain: Some(WORDS), synced: None });
+        let c = Mock::new("c", Act::Find { plain: Some(WORDS), synced: None });
+        let e = engine(Config::default(), &[a.clone(), b.clone(), c.clone()]);
+        match e.find(&q("Queen", "Song"), |_, _| {}).await {
+            Outcome::Found(l) => assert_eq!(l.source, "b"),
+            other => panic!("expected Found, got {other:?}"),
+        }
+        assert!(a.calls() >= 1);
+        assert_eq!(c.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn every_source_failing_is_failed_but_a_clean_miss_is_not_found() {
+        let e = engine(Config::default(), &[Mock::new("a", Act::Fail), Mock::new("b", Act::Fail)]);
+        assert!(matches!(e.find(&q("Queen", "Song"), |_, _| {}).await, Outcome::Failed(_)));
+        let e = engine(Config::default(), &[Mock::new("a", Act::Fail), Mock::new("b", Act::Miss)]);
+        assert!(matches!(e.find(&q("Queen", "Song"), |_, _| {}).await, Outcome::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn repeated_failures_bench_a_source() {
+        let cfg = Config { penalty_max_failures: 2, penalty_window_secs: 60, penalty_cooldown_secs: 300, ..Config::default() };
+        let bad = Mock::new("bad", Act::Fail);
+        let e = engine(cfg, std::slice::from_ref(&bad));
+        for _ in 0..2 {
+            e.find(&q("Queen", "Song"), |_, _| {}).await;
+        }
+        let calls = bad.calls();
+        let mut skipped = Vec::new();
+        let out = e.find(&q("Queen", "Song"), |id, why| skipped.push((id.to_string(), why.map(String::from)))).await;
+        assert_eq!(bad.calls(), calls, "a benched source is not called");
+        assert!(skipped[0].1.as_deref().unwrap().starts_with("penalised"));
+        assert!(matches!(out, Outcome::Failed(_)));
+        e.clear_penalty("bad");
+        e.find(&q("Queen", "Song"), |_, _| {}).await;
+        assert!(bad.calls() > calls, "clear_penalty lets it run again");
+    }
+
+    #[tokio::test]
+    async fn rate_limited_source_cools_down_for_as_long_as_it_asked() {
+        let rl = Mock::new("rl", Act::RateLimit(120));
+        let e = engine(Config::default(), std::slice::from_ref(&rl));
+        e.find(&q("Queen", "Song"), |_, _| {}).await;
+        let left = e.penalty_remaining("rl").expect("cooling down");
+        assert!(left > Duration::from_secs(100) && left <= Duration::from_secs(120));
+    }
+
+    #[tokio::test]
+    async fn one_request_budget_covers_every_variant() {
+        // three variants (cleaned, bracket-less, raw), each would sleep 150 ms; the budget is 100 ms in total
+        let slow = Mock::with_budget("slow", Act::Sleep(150), 100);
+        let e = engine(Config::default(), std::slice::from_ref(&slow));
+        let t = Instant::now();
+        let out = e.find(&q("Queen", "Song (Remastered 2011) [Demo]"), |_, _| {}).await;
+        assert!(t.elapsed() < Duration::from_millis(140), "took {:?}", t.elapsed());
+        assert_eq!(slow.calls(), 1, "the budget ran out during the first variant");
+        assert!(matches!(out, Outcome::Failed(notes) if notes[0].contains("timed out")));
+    }
+
+    #[tokio::test]
+    async fn variants_cover_cleaning_brackets_album_artist_and_raw() {
+        let m = Mock::new("m", Act::Miss);
+        let e = engine(Config::default(), std::slice::from_ref(&m));
+        let mut query = q("Various Artists", "Song (Part 2) (Remastered 2011)");
+        query.album_artist = Some("The Band".into());
+        e.find(&query, |_, _| {}).await;
+        let seen = m.seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            vec![
+                ("Various Artists".into(), "Song (Part 2)".into()),
+                ("The Band".into(), "Song (Part 2)".into()),
+                ("Various Artists".into(), "Song".into()),
+                ("Various Artists".into(), "Song (Part 2) (Remastered 2011)".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn title_clean_can_be_turned_off_or_extended() {
+        let m = Mock::new("m", Act::Miss);
+        let cfg = Config { tag_clean_enabled: false, ..Config::default() };
+        engine(cfg, std::slice::from_ref(&m)).find(&q("A", "Song (Remastered)"), |_, _| {}).await;
+        assert_eq!(m.seen.lock().unwrap()[0].1, "Song (Remastered)");
+
+        let m = Mock::new("m", Act::Miss);
+        let cfg = Config { tag_clean_pattern: Some(r"\s*-\s*demo$".into()), ..Config::default() };
+        engine(cfg, std::slice::from_ref(&m)).find(&q("A", "Song - demo"), |_, _| {}).await;
+        assert_eq!(m.seen.lock().unwrap()[0].1, "Song");
+
+        let bad = Config { tag_clean_pattern: Some("(".into()), ..Config::default() };
+        assert!(Engine::with_providers(bad, vec![], Arc::new(reqwest::cookie::Jar::default())).is_err());
+    }
+
+    #[tokio::test]
+    async fn synced_only_skips_plain_results() {
+        let plain = Mock::new("plain", Act::Find { plain: Some(WORDS), synced: None });
+        let synced = Mock::new("synced", Act::Find { plain: None, synced: Some(LRC) });
+        let cfg = Config { synced_only: true, ..Config::default() };
+        match engine(cfg, &[plain.clone(), synced]).find(&q("Queen", "Song"), |_, _| {}).await {
+            Outcome::Found(l) => {
+                assert_eq!(l.source, "synced");
+                assert_eq!(l.plain.as_deref(), Some(WORDS), "plain text is derived from the LRC");
+            }
+            other => panic!("expected Found, got {other:?}"),
+        }
+        let e = engine(Config { synced_only: true, ..Config::default() }, &[plain]);
+        assert!(matches!(e.find(&q("Queen", "Song"), |_, _| {}).await, Outcome::NotFound(n) if n[0].contains("only unsynced")));
+    }
+
+    #[tokio::test]
+    async fn placeholder_tracks_only_reach_local_sources() {
+        let local = Mock::new("local_files", Act::Miss);
+        let remote = Mock::new("remote", Act::Find { plain: Some(WORDS), synced: None });
+        let e = engine(Config::default(), &[local.clone(), remote.clone()]);
+        let out = e.find(&q("Unknown Artist", "Track 01"), |_, _| {}).await;
+        assert_eq!(local.calls(), 1);
+        assert_eq!(remote.calls(), 0);
+        assert!(matches!(out, Outcome::NotFound(n) if n.iter().any(|x| x.contains("not searched"))));
+    }
+
+    #[tokio::test]
+    async fn run_streams_one_final_event_per_track() {
+        let e = engine(Config { concurrency: 2, ..Config::default() }, &[Mock::new("a", Act::Find { plain: Some(WORDS), synced: None })]);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let items = (0..5).map(|i| (i * 10, q("Queen", &format!("Song {i}")))).collect();
+        e.run(items, tx, Arc::new(AtomicBool::new(false))).await;
+        let mut found = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            if let Event::Found { idx, .. } = ev {
+                found.push(idx);
+            }
+        }
+        found.sort();
+        assert_eq!(found, vec![0, 10, 20, 30, 40], "events carry the caller's ids");
     }
 }

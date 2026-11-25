@@ -7,6 +7,7 @@ pub mod atomic;
 pub mod clean;
 pub mod config;
 pub mod engine;
+pub mod lastfm;
 pub mod lrc;
 pub mod matching;
 pub mod model;
