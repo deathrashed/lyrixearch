@@ -2,6 +2,7 @@
 //! proprietary decoding is needed.
 
 use super::web::BROWSER_UA;
+use super::CheckStatus;
 use super::Provider;
 use crate::config::Config;
 use crate::lrc;
@@ -22,7 +23,7 @@ async fn get_json(http: &reqwest::Client, url: &str, query: &[(&str, String)], c
         .send()
         .await
         .context(ctx)?
-        .error_for_status()?
+        .check_status("kugou")?
         .json()
         .await
         .with_context(|| format!("{ctx}: bad json"))

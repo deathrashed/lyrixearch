@@ -1,6 +1,7 @@
 //! lyrics.ovh — simple exact-name API, plain lyrics only. Used as a last resort since the
 //! service does no fuzzy matching (so the score is 1.0 only by construction).
 
+use super::CheckStatus;
 use super::{Provider, USER_AGENT};
 use crate::clean::{clean_title, strip_featuring};
 use crate::config::Config;
@@ -27,7 +28,7 @@ impl Provider for LyricsOvh {
         if resp.status().as_u16() == 404 {
             return Ok(None);
         }
-        let json: Value = resp.error_for_status()?.json().await.context("lyrics.ovh: bad json")?;
+        let json: Value = resp.check_status("lyrics.ovh")?.json().await.context("lyrics.ovh: bad json")?;
         let text = json.get("lyrics").and_then(Value::as_str).unwrap_or("").trim().to_string();
         if text.is_empty() {
             return Ok(None);

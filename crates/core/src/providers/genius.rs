@@ -3,6 +3,7 @@
 //! reported as "blocked" rather than bypassed.
 
 use super::web::{balanced_div, get_html, html_to_text, split_artist_title};
+use super::CheckStatus;
 use super::Provider;
 use crate::clean::{clean_title, strip_featuring};
 use crate::config::Config;
@@ -119,7 +120,7 @@ impl Provider for Genius {
             .send()
             .await
             .context("genius search")?
-            .error_for_status()?
+            .check_status("genius")?
             .json()
             .await
             .context("genius search: bad json")?;

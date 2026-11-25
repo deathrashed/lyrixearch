@@ -1,6 +1,7 @@
 //! QQ Music's public web endpoints (unofficial, no key). Returns synced lyrics.
 
 use super::web::BROWSER_UA;
+use super::CheckStatus;
 use super::Provider;
 use crate::config::Config;
 use crate::lrc;
@@ -27,7 +28,7 @@ impl Provider for QqMusic {
             .send()
             .await
             .context("qq search")?
-            .error_for_status()?
+            .check_status("qqmusic")?
             .json()
             .await
             .context("qq search: bad json")?;
@@ -53,7 +54,7 @@ impl Provider for QqMusic {
             .send()
             .await
             .context("qq lyric")?
-            .error_for_status()?
+            .check_status("qqmusic")?
             .json()
             .await
             .context("qq lyric: bad json")?;

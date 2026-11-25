@@ -2,6 +2,7 @@
 //! Bandcamp's public search endpoint, so no key is needed.
 
 use super::web::{balanced_div, get_html, html_to_text, BROWSER_UA};
+use super::CheckStatus;
 use super::Provider;
 use crate::config::Config;
 use crate::matching::score;
@@ -30,10 +31,7 @@ impl Provider for Bandcamp {
             .send()
             .await
             .context("bandcamp search")?;
-        if res.status().as_u16() == 429 {
-            return Err(super::RateLimited::from_response(&res, "bandcamp rate limited (HTTP 429)").into());
-        }
-        let res: Value = res.error_for_status()?.json().await.context("bandcamp search: bad json")?;
+        let res: Value = res.check_status("bandcamp")?.json().await.context("bandcamp search: bad json")?;
         let results = res.pointer("/auto/results").and_then(Value::as_array).cloned().unwrap_or_default();
         let best = results
             .iter()

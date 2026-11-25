@@ -1,6 +1,7 @@
 //! NetEase Cloud Music's public web endpoints (unofficial, no key). Good coverage of
 //! Asian catalogues, returns synced lyrics.
 
+use super::CheckStatus;
 use super::{Provider, USER_AGENT};
 use crate::config::Config;
 use crate::lrc;
@@ -28,7 +29,7 @@ impl Provider for Netease {
             .send()
             .await
             .context("netease search")?
-            .error_for_status()?
+            .check_status("netease")?
             .json()
             .await
             .context("netease search: bad json")?;
@@ -71,7 +72,7 @@ impl Provider for Netease {
             .send()
             .await
             .context("netease lyric")?
-            .error_for_status()?
+            .check_status("netease")?
             .json()
             .await
             .context("netease lyric: bad json")?;

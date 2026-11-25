@@ -19,7 +19,8 @@ pub async fn get_html(http: &reqwest::Client, url: &str, headers: &[(&str, &str)
         return Err(super::RateLimited::from_response(&resp, "rate limited (HTTP 429)").into());
     }
     let retry_hint = resp.headers().contains_key(reqwest::header::RETRY_AFTER).then(|| super::RateLimited::from_response(&resp, "busy (HTTP 503)"));
-    let body = resp.text().await.unwrap_or_default();
+    // a body that cannot be read is a failed request, not an empty page ("no match")
+    let body = resp.text().await.with_context(|| format!("reading {url}"))?;
     if body.contains("_cf_chl_opt") || body.contains("cf-challenge") {
         return Err(super::Challenge { url: url.to_string(), reason: "blocked by a Cloudflare challenge".into() }.into());
     }
