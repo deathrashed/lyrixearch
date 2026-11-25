@@ -597,13 +597,14 @@ mod tests {
 
     #[tokio::test]
     async fn one_request_budget_covers_every_variant() {
-        // three variants (cleaned, bracket-less, raw), each would sleep 150 ms; the budget is 100 ms in total
-        let slow = Mock::with_budget("slow", Act::Sleep(150), 100);
+        // Three variants (cleaned, bracket-less, raw). Each call takes 70 ms; the budget is 100 ms
+        // for the whole track. With a budget per variant all three calls would fit (and the track
+        // would end as NotFound); with one shared budget the second call runs out of time.
+        // No wall-clock assertion: under load everything is slower, but never more calls.
+        let slow = Mock::with_budget("slow", Act::Sleep(70), 100);
         let e = engine(Config::default(), std::slice::from_ref(&slow));
-        let t = Instant::now();
         let out = e.find(&q("Queen", "Song (Remastered 2011) [Demo]"), |_, _| {}).await;
-        assert!(t.elapsed() < Duration::from_millis(140), "took {:?}", t.elapsed());
-        assert_eq!(slow.calls(), 1, "the budget ran out during the first variant");
+        assert!(slow.calls() < 3, "made {} calls", slow.calls());
         assert!(matches!(out, Outcome::Failed(notes) if notes[0].contains("timed out")));
     }
 
