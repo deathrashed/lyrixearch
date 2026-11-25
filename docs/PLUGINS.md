@@ -25,6 +25,8 @@ id = "metallum"                      # unique; used in `providers`
 name = "Metal Archives"              # shown in the GUI
 command = ["python3", "plugin.py"]   # run with the plugin folder as working directory
 timeout_secs = 60                    # optional, default 30
+max_parallel = 1                     # optional, default 2: lookups running at once
+min_gap_ms = 300                     # optional, default 300: pause between starting two lookups
 ```
 
 ## Protocol v1
@@ -47,6 +49,17 @@ stdout (one JSON object; extra log lines before it are ignored):
 or `{"found":false}` when the source simply has nothing. `plain` and/or `synced` must be present
 when `found` is true. `score` (0–1) is optional and defaults to 0.9.
 
+Problems on the plugin's side can be reported in the reply as well (both fields are optional;
+plugins that never send them keep working):
+
+```json
+{"found":false,"error":"service unavailable"}
+{"found":false,"error":"rate limited","retry_after":120}
+```
+
+`error` alone is a **failure**. With `retry_after` (seconds, held between 15 and 900) it means
+"rate limited": the plugin is left alone for that long instead of collecting failures.
+
 Exit status: `0` for a normal answer (including "not found"). Any non-zero exit is a
 **failure** — the last line of stderr is shown, and repeated failures put the plugin in the
 penalty box for a few minutes, like any other source.
@@ -55,5 +68,6 @@ penalty box for a few minutes, like any other source.
 
 `plugins/metallum` wraps the shared `metallum` CLI (`metallum lyrics <album> --artist <artist> --json`).
 That CLI answers per album, so the plugin caches each album's reply for ten minutes and picks the
-track by track number first, then by normalised title. It looks for the executable in
+track by track number first, then by normalised title. "No such album" and ambiguous answers are
+misses; a Metal Archives rate limit asks lyrixearch to wait a minute; other CLI errors are failures. It looks for the executable in
 `$METALLUM_BIN`, then `PATH`, then `~/.local/bin/metallum`.

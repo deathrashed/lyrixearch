@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 CACHE_TTL = 600  # seconds
+RATE_LIMIT_WAIT = 60  # seconds to ask lyrixearch to wait when Metal Archives says "slow down"
 
 
 def find_metallum() -> str:
@@ -132,6 +133,20 @@ def pick_track(tracks: list, number, title: str):
     return None
 
 
+def error_reply(result: dict) -> dict:
+    """Map a metallum CLI error object to a protocol reply.
+
+    "No such album" / ambiguous answers are a miss. A rate limit (or any error the CLI marks
+    retryable) asks lyrixearch to back off; anything else is reported as a failure so it is seen.
+    """
+    error = str(result.get("error") or "unknown error")
+    if error == "rate_limited" or result.get("retryable"):
+        return {"found": False, "error": f"Metal Archives: {error}", "retry_after": RATE_LIMIT_WAIT}
+    if result.get("error_kind") == "resolution" or error in ("not_found", "ambiguous"):
+        return {"found": False}
+    return {"found": False, "error": f"Metal Archives: {error}"}
+
+
 def main() -> int:
     q = json.load(sys.stdin)
     artist = (q.get("album_artist") or q.get("artist") or "").strip()
@@ -145,8 +160,7 @@ def main() -> int:
         return 1
     result = album_result(binary, artist, album)
     if not result.get("ok"):
-        # "no such album" style answers are a miss, not a plugin failure
-        print(json.dumps({"found": False}))
+        print(json.dumps(error_reply(result)))
         return 0
     tracks = [t for t in result.get("tracks", []) if isinstance(t, dict)]
     row = pick_track(tracks, q.get("track_number"), q.get("title", ""))
