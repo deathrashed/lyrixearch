@@ -640,14 +640,14 @@ fn draw(f: &mut Frame, app: &mut App) {
     let with = app.items.iter().filter(|i| i.track.has_lyrics).count();
     let filter_name = match app.filter {
         Filter::All => "all",
-        Filter::With => "with lyrics",
-        Filter::Without => "without lyrics",
+        Filter::With => "embedded",
+        Filter::Without => "missing",
     };
     f.render_widget(
         Line::from(vec![
             Span::styled(" lyrixearch ", Style::new().bg(ACCENT).fg(Color::Black).bold()),
             Span::raw(format!(
-                "  {} files · {} with lyrics · {} left to search · {} not found · showing {} ({filter_name}){}",
+                "  {} tracks · {} embedded · {} missing · {} no match · showing {} ({filter_name}){}",
                 app.items.len(),
                 with,
                 app.items.len() - with,
@@ -695,11 +695,14 @@ fn draw(f: &mut Frame, app: &mut App) {
             Span::raw("  "),
             Span::styled(it.track.query.artist.clone(), Style::new().fg(DIM)),
         ]));
-        lines.push(Line::from(Span::styled(it.track.path.display().to_string(), Style::new().fg(DIM))));
+        // the file name and its folder, not the whole path: a long path wrapped over several lines
+        let file = it.track.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let folder = it.track.path.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        lines.push(Line::from(Span::styled(if folder.is_empty() { file } else { format!("{folder}/{file}") }, Style::new().fg(DIM))));
         match &it.status {
             Status::Searching(p) => lines.push(Line::from(Span::styled(format!("searching… {p}"), Style::new().fg(Color::Yellow)))),
-            Status::NotFound(n) => lines.push(Line::from(Span::styled(format!("not found — {n}"), Style::new().fg(Color::Red)))),
-            Status::Error(e) => lines.push(Line::from(Span::styled(format!("error — {e}"), Style::new().fg(Color::Red)))),
+            Status::NotFound(n) => lines.push(Line::from(Span::styled(format!("no match — {n}"), Style::new().fg(Color::Magenta)))),
+            Status::Error(e) => lines.push(Line::from(Span::styled(format!("failed — {e}"), Style::new().fg(Color::Red)))),
             _ => {}
         }
         if let Some(l) = &it.found {
@@ -728,7 +731,7 @@ fn draw(f: &mut Frame, app: &mut App) {
             Gauge::default()
                 .ratio(app.queued_done as f64 / app.queued_total as f64)
                 .label(format!(
-                    "Searching {}/{}{} · {} found · {} not found",
+                    "Searching {}/{}{} · {} found · {} no match",
                     app.queued_done,
                     app.queued_total,
                     if app.current.is_empty() { String::new() } else { format!(" · {}", app.current) },
@@ -741,7 +744,7 @@ fn draw(f: &mut Frame, app: &mut App) {
     } else if app.queued_total > 0 {
         f.render_widget(
             Line::from(Span::styled(
-                format!(" Done · {} found, {} not found. Press w to write what was found. {}", app.run_found, app.run_missed, app.message),
+                format!(" Done · {} found, {} no match. Press w to write what was found. {}", app.run_found, app.run_missed, app.message),
                 Style::new().fg(Color::Yellow),
             )),
             prog,

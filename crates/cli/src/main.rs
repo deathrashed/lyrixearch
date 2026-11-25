@@ -400,7 +400,7 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
     }
     runner.await.context("search task panicked")?;
     if !a.json {
-        eprintln!("\nfound {found}, not found {missing}, no source answered {unanswered}, write errors {failed}, already had lyrics {skipped}");
+        eprintln!("\nfound {found}, no match {missing}, failed (no source answered) {unanswered}, write errors {failed}, already had lyrics {skipped}");
     }
     Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
