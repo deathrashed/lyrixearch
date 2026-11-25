@@ -349,7 +349,8 @@ impl Engine {
         if self.cfg.write_tags {
             if let Some(text) = lyrics.embed_text() {
                 let text = output::postprocess(&text, &self.cfg);
-                tags::write_lyrics(&track.path, &text, self.cfg.keep_mtime)?;
+                let synced = lyrics.synced.as_deref().filter(|s| crate::lrc::looks_synced(s));
+                tags::write_lyrics_with(&track.path, &text, synced, self.cfg.keep_mtime)?;
                 applied.tag_written = true;
             }
         }
