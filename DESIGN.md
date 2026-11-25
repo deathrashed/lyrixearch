@@ -39,6 +39,7 @@
 | md | 17.5px | 1.3 | inspector title, dialog titles |
 | lg | 21.9px | 1.25 | empty-state heading |
 
+- Roles: Sora only for UPPERCASE silkscreen labels (state words, tags, section heads); Source Sans 3 for everything read, track titles included; Plex Mono only for numbers (times, counts, paths). Monospace never stands in for "technical".
 - Weights: 400 / 500 / 600; weight never changes on hover or selection | Measure: lyrics pane ~55ch, left-aligned | Tracking: labels +0.12em, display 0
 - CJK track names fall back to the system CJK face (stack ends in system fonts only as a fallback, never as the primary face).
 
@@ -57,10 +58,10 @@
   - muted: oklch(0.72 0.01 260) | #a5a8b0
   - faint: oklch(0.62 0.01 260) | #82858d
   - silver (primary button fill): oklch(0.90 0.005 260) | #dcdde0 with text oklch(0.18 0.006 260)
-  - led-green: oklch(0.84 0.20 145) | #5fe27f
+  - led-green (brand green, the icon's LED): oklch(0.817 0.245 138) | #65E51C, 10.3:1 or better on every dark surface
   - led-amber: oklch(0.82 0.15 78) | #f0b94a
   - led-red: oklch(0.70 0.19 25) | #f2655a
-- Palette, light (designed sibling, not inverted): bg oklch(0.955 0.004 260), surface oklch(0.985 0.003 260), surface-2 oklch(0.94 0.005 260), surface-3 oklch(0.90 0.006 260), border oklch(0.86 0.006 260), border-strong oklch(0.58 0.01 260), fg oklch(0.22 0.008 260), muted oklch(0.45 0.01 260), silver becomes a dark fill oklch(0.24 0.008 260) with light text, led-green oklch(0.57 0.17 145) for lamps and the focus ring, oklch(0.45 0.12 145) for green text, red text oklch(0.5 0.2 27), amber text oklch(0.48 0.11 70).
+- Palette, light (designed sibling, not inverted): bg oklch(0.955 0.004 260), surface oklch(0.985 0.003 260), surface-2 oklch(0.94 0.005 260), surface-3 oklch(0.90 0.006 260), border oklch(0.86 0.006 260), border-strong oklch(0.58 0.01 260), fg oklch(0.22 0.008 260), muted oklch(0.45 0.01 260), silver becomes a dark fill oklch(0.24 0.008 260) with light text, led-green oklch(0.57 0.18 138) for lamps and the focus ring (3.7:1), oklch(0.48 0.14 138) for green text (5.2:1 or better), call-to-action fill oklch(0.5 0.15 138) with near-white text (5.5:1), red text oklch(0.5 0.2 27), amber text oklch(0.48 0.11 70).
 - Rules: no pure black or white; elevation in dark = lightness steps; borders are lighter than their surface; lamp colors are always paired with a text label.
 
 ## Spacing, radius, shadow
@@ -90,6 +91,31 @@
 - Footer status bar: counts as buttons that filter, and progress as words plus the LED bar-graph.
 - Focus ring: box-shadow 0 0 0 2px bg, 0 0 0 4px led-green (3:1 or better against both surfaces).
 
+## Wording
+
+One term per concept, in the interface and in tooltips:
+
+| concept | word |
+|---|---|
+| add tracks | Import (Files…, Folder…) |
+| search everything listed and write what is found | Fetch lyrics |
+| search the selection without writing | Search |
+| write found lyrics into the files | Embed |
+| no lyrics yet | Missing |
+| no source had them | Not found (never "NA") |
+| take tracks out of the list (files untouched) | Remove from list / Clear embedded from list |
+| delete lyrics inside the files | Delete lyrics from file(s)… (always red, always last, after a rule) |
+| reveal a file | Show in Finder / Show in Explorer / Show in file manager |
+
+## Toolbars and menus
+
+- Header: brand, filter, engine lamp, Import menu, Library menu, Fetch lyrics (the only filled button), theme, settings.
+- List bar: selection on the left; Search, Embed, LRC files, then one overflow (⋯) for rarer list actions.
+- Inspector: Copy, Edit, Search again and one overflow (⋯); text size on the far right. Everything that writes a file says so in its label or tooltip.
+- Menus are fixed popovers anchored to their button (never full width), destructive item last and red.
+- Bot checks never open a window by themselves: sites behind one load in a hidden browser; a check that needs a person appears as a lamp and a sentence in the status bar with Verify and Skip.
+- Web tab: Use selection puts the text highlighted on the page into the editor.
+
 ## Motion
 
 - Duration scale: instant 80ms / fast 120ms / base 180ms / sheet 260ms
@@ -101,7 +127,8 @@
 ## Iconography
 
 - Set: Lucide (inlined SVG paths, no runtime dependency) | grid: 24px | stroke: 2px | caps/joins: round / round
-- Brand mark: the supplied icon, used as is at 32px in the faceplate and as the app icon (icns, ico, png).
+- Brand mark: the approved artwork package v6 (charcoal speaker faceplate, green magnifier over lyric lines, green LED), used as is at 32px in the faceplate and as the app icon (icns, ico, Linux hicolor 16-512).
+- Tray: the brand "LS" mark with a status lamp (idle blue, fetching yellow, complete green, stopped red, error red with !), dark or light artwork from the system theme, never template-tinted on macOS; the tooltip says the state in words.
 
 ## Imagery and illustration
 
@@ -113,7 +140,7 @@
 ## Dark mode
 
 - Base bg: L0.155 near-black | fg: off-white L0.93 | elevation ramp: 0.155 / 0.19 / 0.23 / 0.275
-- Accent (dark): LED green oklch(0.84 0.20 145), used only for lamps, focus ring, switch-on, and the meter | border: lighter than surface
+- Accent (dark): brand green oklch(0.817 0.245 138) (#65E51C), used only for lamps, focus ring, switch-on, and the meter | border: lighter than surface
 - Theme switch: no transition during the swap
 
 ## Accessibility
@@ -141,6 +168,8 @@ See `crates/gui/ui/style.css` (`:root` and `[data-theme="light"]`), which projec
 - Not verified: screen-reader pass, 200% zoom, color-blindness simulation. Lamp meaning is also written in words in the State column, so grayscale reading was designed in but not simulated.
 
 ## Changelog
+
+- 2026-11-26: brand package v6 (icon, tray, brand green #65E51C with recomputed contrast); Import menu replaces Files + Folder; Fetch lyrics replaces Find & embed all; "Not found" replaces NA; list and inspector toolbars cut to three labelled actions plus an overflow menu; type roles tightened (Sora labels, Source Sans text, Plex Mono numbers); fixed the full-width menus and the macOS web panel sitting one title bar too high; bot checks moved into a hidden browser with an in-app notice; Use selection in the Web tab.
 
 - 2026-10-14: renamed to Lyrixearch; macOS icon; queue rows with cover art; player; resizable inspector; footer status bar; mobile web view. Layout fix: middle grid row is minmax(0, 1fr) so panels scroll. Re-checked: no new colors, radii or shadows introduced; all new controls have hover, active, focus and disabled states, labels, and 24px or larger targets.
 - 2026-10-14: contrast fixes (see slop audit).

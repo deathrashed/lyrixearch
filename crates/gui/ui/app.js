@@ -122,15 +122,17 @@
   };
 
   // ───────────────────────── states: a lamp color, and the same meaning in words ─────────────────────────
-  //   embedded green · missing amber · found blue · saved green ring · NA (not found) purple · error red
+  //   embedded green · missing amber · found blue · embedded just now green ring · not found purple · error red
+  // display name of a source ("lrclib" -> "LRCLIB"), from the catalog the backend sends
+  const pname = (id) => (id && S.settings?.providers?.find((p) => p.id === id)?.name) || id || '';
   function lampClass(t) { return t.status === 'idle' ? (t.has_lyrics ? 'has' : 'missing') : t.status; }
   function stateLabel(t) {
     switch (t.status) {
       case 'queued': return 'queued';
-      case 'searching': return `searching · ${t.provider || ''}`.trim();
-      case 'found': return `found · ${t.provider}${t.synced ? ' · synced' : ''}`;
-      case 'written': return `saved · ${t.provider || 'tags'}`;
-      case 'notfound': return 'NA';
+      case 'searching': return t.provider ? `searching · ${pname(t.provider)}` : 'searching';
+      case 'found': return `found · ${pname(t.provider)}${t.synced ? ' · synced' : ''}`;
+      case 'written': return t.provider ? `embedded · ${pname(t.provider)}` : 'embedded';
+      case 'notfound': return 'not found';
       case 'error': return 'error';
       default: return t.has_lyrics ? 'embedded' : 'missing';
     }
@@ -295,8 +297,8 @@
     box.title = all ? 'Deselect every track shown' : 'Select every track shown';
     $('#sel-all-label').textContent = all ? 'Deselect all' : 'Select all';
     $('#sel-count').textContent = n ? `${n} of ${S.tracks.size}` : `${shown} shown`;
-    for (const id of ['sel-search', 'sel-embed', 'sel-files', 'sel-more']) $(`#${id}`).disabled = n === 0;
-    $('#drop-embedded').disabled = ![...S.tracks.values()].some((t) => t.has_lyrics);
+    for (const id of ['sel-search', 'sel-embed', 'sel-files', 'mn-drop', 'mn-remove']) $(`#${id}`).disabled = n === 0;
+    $('#mn-clear-embedded').disabled = ![...S.tracks.values()].some((t) => t.has_lyrics);
   }
 
   function toggleSelectAll() {
@@ -314,11 +316,11 @@
     run.classList.toggle('stop', running);
     run.disabled = !running && ids.length === 0;
     run.querySelector('[data-icon]').innerHTML = icon(running ? 'stop' : 'bolt');
-    $('#btn-run-label').textContent = running ? 'Stop' : 'Find & embed all';
+    $('#btn-run-label').textContent = running ? 'Stop' : 'Fetch lyrics';
     const cnt = $('#btn-run-count');
     cnt.hidden = running || ids.length === 0;
     cnt.textContent = ids.length;
-    run.title = running ? 'Stop searching' : ids.length ? `Search the ${ids.length} track${ids.length === 1 ? '' : 's'} listed below and embed what is found${S.replace ? ', replacing existing lyrics' : ''}` : 'Every track listed already has lyrics';
+    run.title = running ? 'Stop searching' : ids.length ? `Search ${ids.length} listed track${ids.length === 1 ? '' : 's'} and embed the lyrics found${S.replace ? ', replacing existing lyrics' : ''}` : 'Every listed track has lyrics';
     const led = $('#engine-led');
     led.className = `led ${running ? 'searching' : 'on'}`;
     led.setAttribute('aria-label', running ? 'Engine searching' : 'Engine ready');
@@ -330,8 +332,8 @@
     if (!box.hidden) {
       $('#meter-fill').style.setProperty('--p', pr.total ? pr.done / pr.total : 0);
       $('#progress-text').textContent = running
-        ? `Searching ${pr.done}/${pr.total}${S.current ? ' · ' + S.current : ''} · ${pr.found} found · ${pr.missed} NA${pr.written ? ' · ' + pr.written + ' saved' : ''}`
-        : `Done · ${pr.found} found${pr.written ? ', ' + pr.written + ' saved' : ''}, ${pr.missed} NA`;
+        ? `Searching ${pr.done}/${pr.total}${S.current ? ' · ' + S.current : ''} · ${pr.found} found · ${pr.missed} not found${pr.written ? ' · ' + pr.written + ' embedded' : ''}`
+        : `Done · ${pr.found} found${pr.written ? ', ' + pr.written + ' embedded' : ''}, ${pr.missed} not found`;
       if (!running) setTimeout(renderTop, 9100);
     }
   }
@@ -401,11 +403,11 @@
     else if (d.embedded) { pre.className = 'lyrics'; pre.textContent = d.embedded; }
     else {
       pre.className = 'lyrics placeholder';
-      pre.textContent = t.status === 'notfound' ? 'Nothing found. Try Web, paste lyrics from the clipboard, or embed a matching .lrc / .txt file. The Info tab lists what each source said.' : 'This track has no lyrics yet.';
+      pre.textContent = t.status === 'notfound' ? 'No source had these lyrics. Try the Web tab, paste them in, or embed a matching .lrc or .txt file. Info lists what each source said.' : 'No lyrics yet.';
     }
     $('#act-embed').hidden = !d.found;
     $('#act-copy').disabled = !text;
-    $('#act-remove').hidden = !t.has_lyrics;
+    $('#tm-remove').hidden = !t.has_lyrics;
 
     const ta = $('#edit-text');
     ta.dataset.id = t.id;
@@ -423,7 +425,8 @@
       q.dataset.for = String(t.id);
       S.webUrl = null;
     }
-    syncBrowser();
+    // a new track loads its own search instead of keeping the last track's page
+    syncBrowser(S.webUrl === null);
   }
 
   function setTab(tab, focus = false) {
@@ -444,12 +447,7 @@
     const tb = $('#lyrics-toolbar');
     tb.dataset.mode = m.id;
     $('#listbar').dataset.mode = m.id;
-    const btn = $('#tb-mode');
-    btn.innerHTML = icon(m.icon);
-    btn.title = `Button style: ${m.label}. Click to change.`;
-    btn.setAttribute('aria-label', `Button style: ${m.label}`);
     $$('.btn[data-label]').forEach((b) => { b.title = b.dataset.label; b.setAttribute('aria-label', b.dataset.label); });
-    store.set('lf-tb-mode', m.id);
   }
 
   // ───────────────────────── embedded browser ─────────────────────────
@@ -470,7 +468,8 @@
   // Google AI Mode shows plain results inside an embedded view (it needs your signed-in browser), so it opens there.
   const EXTERNAL_ENGINES = new Set(['google_ai']);
 
-  const slotRect = () => { const r = $('#webslot').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  // vh lets the backend line the page up with this viewport (the window can be taller, e.g. a macOS title bar)
+  const slotRect = () => { const r = $('#webslot').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, vh: innerHeight }; };
   // false on Linux, where pages open in the person's browser instead of inside the window
   const canEmbed = () => S.settings?.embedded_browser !== false;
   const browserWanted = () => canEmbed() && S.tab === 'web' && !!activeTrack() && !S.modalOpen && !S.popOpen && !S.dragging;
@@ -701,10 +700,10 @@
     if (S.progress?.running) { invoke('cancel_search'); return; }
     if (!runIds().length) { toast(S.view.length ? 'Every track listed already has lyrics. Turn on Replace existing in Files to search them anyway.' : 'No tracks in the list'); return; }
     const where = S.settings?.config.write_tags === false ? 'saved as sidecar files' : 'embedded in the audio files';
-    const ok = await confirmBox('Find and embed lyrics?', () => {
+    const ok = await confirmBox('Fetch lyrics?', () => {
       const n = runIds().length;
-      return `Searches the ${n} track${n === 1 ? '' : 's'} listed now. Everything found is ${where} straight away.`;
-    }, 'Find and embed', true);
+      return `Searches ${n} listed track${n === 1 ? '' : 's'}. Lyrics found are ${where} right away.`;
+    }, 'Fetch lyrics', true);
     if (!ok) return;
     const ids = runIds();
     if (ids.length) startSearch(ids, true, S.replace);
@@ -1013,9 +1012,10 @@
     $('#statusbar .counts').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setFilter(b.dataset.filter); });
 
     const addFolder = async () => addPaths(await pickFolders());
-    $('#btn-add').onclick = addFolder;
     $('#btn-add-2').onclick = addFolder;
-    $('#btn-add-files').onclick = async () => addPaths(await pickFiles());
+    $('#btn-import').onclick = (e) => openFloating($('#import-pop'), e.currentTarget, '#mn-import-files');
+    $('#mn-import-files').onclick = async () => { closeFloating(); addPaths(await pickFiles()); };
+    $('#mn-import-folder').onclick = () => { closeFloating(); addFolder(); };
 
     // library menu
     $('#btn-library').onclick = () => toggleLibrary();
@@ -1049,10 +1049,10 @@
     $('#sel-search').onclick = () => startSearch([...S.sel], false, S.replace);
     $('#sel-embed').onclick = () => embedIds([...S.sel]);
     $('#sel-files').onclick = (e) => openFileOptions(e.currentTarget, 'sel');
-    $('#sel-more').onclick = (e) => openFloating($('#more-pop'), e.currentTarget, '#mn-remove');
+    $('#sel-more').onclick = (e) => openFloating($('#more-pop'), e.currentTarget, '#mn-drop');
     $('#mn-remove').onclick = () => { closeFloating(); removeLyrics([...S.sel]); };
     $('#mn-drop').onclick = async () => { closeFloating(); setTracks((await invoke('remove_tracks', { ids: [...S.sel] })).tracks); };
-    $('#drop-embedded').onclick = dropEmbedded;
+    $('#mn-clear-embedded').onclick = () => { closeFloating(); dropEmbedded(); };
 
     // lyric files options: format, replace, and the two actions
     $('#fp-kind').addEventListener('click', (e) => { const b = e.target.closest('[data-kind]'); if (!b) return; S.kind = b.dataset.kind; store.set('lf-kind', S.kind); paintFileOptions(); });
@@ -1078,19 +1078,22 @@
     $('#act-embed').onclick = () => embedIds([tid()]);
     $('#act-copy').onclick = async () => { try { await clip.write(shownLyrics()); toast('Lyrics copied to the clipboard', 'good'); } catch { toast('Clipboard unavailable', 'bad'); } };
     $('#act-edit').onclick = () => { setTab('edit', true); $('#edit-text').focus(); };
-    $('#act-paste').onclick = pasteLyrics;
-    $('#act-files').onclick = (e) => openFileOptions(e.currentTarget, 'active');
-    $('#act-web').onclick = () => setTab('web', true);
     $('#act-requeue').onclick = () => startSearch([tid()], false);
-    $('#act-reveal').onclick = () => invoke('reveal_track', { id: tid() }).catch((e) => toast(errText(e), 'bad'));
-    $('#act-path').onclick = async () => { try { await clip.write(activeTrack().path); toast('File path copied', 'good'); } catch { toast('Clipboard unavailable', 'bad'); } };
-    $('#act-remove').onclick = () => removeLyrics([tid()]);
+    $('#act-more').onclick = (e) => openFloating($('#track-pop'), e.currentTarget, '#tm-paste');
+    // the file manager's own name, so the action says where the file will be shown
+    const ua = navigator.userAgent;
+    $('#tm-reveal-label').textContent = /Mac/.test(ua) ? 'Show in Finder' : /Windows/.test(ua) ? 'Show in Explorer' : 'Show in file manager';
+    $('#tm-paste').onclick = () => { closeFloating(); pasteLyrics(); };
+    $('#tm-files').onclick = () => { const a = $('#act-more'); closeFloating(); openFileOptions(a, 'active'); };
+    $('#tm-reveal').onclick = () => { closeFloating(); invoke('reveal_track', { id: tid() }).catch((e) => toast(errText(e), 'bad')); };
+    $('#tm-path').onclick = async () => { closeFloating(); try { await clip.write(activeTrack().path); toast('File path copied', 'good'); } catch { toast('Clipboard unavailable', 'bad'); } };
+    $('#tm-remove').onclick = () => { closeFloating(); removeLyrics([tid()]); };
+    for (const id of ['#import-pop', '#track-pop']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Escape') { const a = S.pop?.anchor; closeFloating(); a?.focus(); } });
     $('#font-down').onclick = () => setLyricsSize(S.lyricsSize - 1);
     $('#font-up').onclick = () => setLyricsSize(S.lyricsSize + 1);
     setLyricsSize(Number(store.get('lf-lyrics-size')) || 14);
-    S.tbMode = store.get('lf-tb-mode') || 'both';
+    S.tbMode = 'both';
     applyToolbarMode();
-    $('#tb-mode').onclick = () => { const i = TB_MODES.findIndex((m) => m.id === S.tbMode); S.tbMode = TB_MODES[(i + 1) % TB_MODES.length].id; applyToolbarMode(); };
 
     const tabs = $$('#tabs [role=tab]');
     tabs.forEach((b) => { b.tabIndex = b.getAttribute('aria-selected') === 'true' ? 0 : -1; });
@@ -1128,6 +1131,15 @@
     $('#web-reload').onclick = () => invoke('browser_reload');
     $('#web-zoom-out').onclick = () => invoke('browser_zoom', { delta: -0.1 });
     $('#web-zoom-in').onclick = () => invoke('browser_zoom', { delta: 0.1 });
+    $('#web-use').onclick = async () => {
+      try {
+        const text = await invoke('browser_selection');
+        if (!text) { toast('Select the lyrics on the page first'); return; }
+        $('#edit-text').value = text;
+        setTab('edit', true);
+        toast('Selection in the editor. Check it, then Save.', 'good');
+      } catch (e) { toast(errText(e), 'bad'); }
+    };
     $('#web-external').onclick = () => { const u = S.webUrl || urlFor($('#web-query').value); if (u) invoke('open_external', { url: u }).catch((e) => toast(errText(e), 'bad')); };
     $('#web-engine').addEventListener('change', () => { if ($('#web-query').value.trim()) goWeb(); });
     // Mobile view: pages load with a phone layout (default); the toggle rebuilds the panel at the same address.
@@ -1186,7 +1198,8 @@
       $('#web-engine').innerHTML = engineOptions(s.engines, s.config.search_engine);
       if (!canEmbed()) {
         // no in-window page here: keep the search box and the Browser button, drop the page controls
-        ['#web-back', '#web-forward', '#web-reload', '#web-zoom-out', '#web-zoom-in', '#web-mobile'].forEach((sel) => { $(sel).hidden = true; });
+        ['#web-back', '#web-forward', '#web-reload', '#web-zoom-out', '#web-zoom-in', '#web-mobile', '#web-use'].forEach((sel) => { $(sel).hidden = true; });
+        $('#web-hint').textContent = 'Copy the lyrics from your browser, then paste them in Edit.';
         $('#webslot').innerHTML = '<span>Search opens the results in your browser.</span>';
       }
       renderLibraries();
@@ -1202,11 +1215,11 @@
     T.event.listen('track', (e) => {
       const t = e.payload;
       S.tracks.set(t.id, t);
-      if (t.status === 'found') logEvent(`Found ${t.name} via ${t.provider}`);
+      if (t.status === 'found') logEvent(`Found ${t.name} via ${pname(t.provider)}`);
       if (t.status === 'notfound') logEvent(`Not found: ${t.name}${t.note ? '\n' + t.note : ''}`);
       if (t.status === 'error') logEvent(`Error: ${t.name}${t.note ? '\n' + t.note : ''}`);
       if (t.status === 'written') logEvent(`Wrote lyrics for ${t.name}`);
-      if (t.status === 'searching') S.current = `${t.title}${t.provider ? ' via ' + t.provider : ''}`;
+      if (t.status === 'searching') S.current = `${t.title}${t.provider ? ' via ' + pname(t.provider) : ''}`;
       computeView();
       recount();
       $('#spacer').style.height = `${S.view.length * ROW_H}px`;
@@ -1218,15 +1231,32 @@
     T.event.listen('progress', (e) => { S.progress = e.payload; if (!e.payload.running) S.progressAt = Date.now(); renderTop(); });
     T.event.listen('stats', () => recount());
     // A source wants a bot check passed: a browser window opens, solves itself if it can, and the engine reuses its cookies.
+    // A source sits behind a bot check the hidden browser could not pass by itself: say so in the status
+    // bar; the check only opens when the person chooses Verify. Nothing pops up on its own.
+    const showCheck = (host) => {
+      $('#check-text').textContent = `${host} needs a quick human check`;
+      $('#checkbar').hidden = false;
+    };
     T.event.listen('challenge', (e) => {
       const { provider, url } = e.payload;
-      logEvent(`Bot check requested by ${provider}`);
-      toast(`${provider} wants a quick check. A window opened: pass it and close it, searching carries on.`);
-      invoke('open_challenge', { url, provider }).catch((err) => { logEvent(`Bot check error: ${errText(err)}`); toast(errText(err), 'bad'); });
+      logEvent(`${pname(provider)} is waiting for a bot check`);
+      invoke('open_challenge', { url, provider }).catch((err) => logEvent(`Bot check error: ${errText(err)}`));
     });
-    T.event.listen('challenge-done', (e) => {
-      logEvent(`Bot check finished for ${e.payload}`);
-      toast(`${e.payload}: check finished, the source is back in use`, 'good');
+    T.event.listen('check-needed', (e) => { logEvent(`${e.payload.host} needs a human check`); showCheck(e.payload.host); });
+    T.event.listen('check-cleared', (e) => {
+      $('#checkbar').hidden = true;
+      logEvent(`${e.payload.host} check passed`);
+      toast(`${e.payload.host} check passed`, 'good');
+    });
+    $('#check-open').onclick = () => invoke('show_check').catch((err) => toast(errText(err), 'bad'));
+    $('#check-skip').onclick = () => { $('#checkbar').hidden = true; invoke('dismiss_check'); };
+    // menu-bar / tray actions
+    T.event.listen('tray-action', (e) => {
+      if (e.payload === 'stop') { if (S.progress?.running) invoke('cancel_search'); return; }
+      if (e.payload === 'find-all' && !S.progress?.running) {
+        const ids = runIds();
+        if (ids.length) startSearch(ids, true, S.replace); else toast('Every listed track has lyrics');
+      }
     });
     T.event.listen('player', (e) => {
       S.player = e.payload;

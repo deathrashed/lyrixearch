@@ -24,8 +24,7 @@
           <i class="led on" id="engine-led" role="img" aria-label="Engine ready"></i>
           <span class="silk" id="engine-text">Ready</span>
         </div>
-        <button class="btn" id="btn-add-files" title="Add audio files" aria-label="Add audio files"><span data-icon="filePlus"></span><span class="lbl">Files</span></button>
-        <button class="btn" id="btn-add" title="Add a folder; every subfolder is scanned" aria-label="Add a folder"><span data-icon="folder"></span><span class="lbl">Folder</span></button>
+        <button class="btn" id="btn-import" aria-haspopup="menu" aria-expanded="false" aria-controls="import-pop" title="Add tracks to the list"><span data-icon="plus"></span><span class="lbl">Import</span><span class="chev" data-icon="down"></span></button>
         <div class="pop-wrap">
           <button class="btn" id="btn-library" aria-haspopup="dialog" aria-expanded="false" aria-controls="library-pop" title="Library folders"><span data-icon="library"></span><span class="lbl">Library</span><span data-icon="down"></span></button>
           <div class="popover" id="library-pop" role="dialog" aria-label="Library folders" hidden>
@@ -38,7 +37,7 @@
             </div>
           </div>
         </div>
-        <button class="btn cta" id="btn-run" title="Search every track in the list below and embed what is found"><span data-icon="bolt"></span><span class="lbl" id="btn-run-label">Find &amp; embed all</span><b class="count" id="btn-run-count" hidden></b></button>
+        <button class="btn cta" id="btn-run" title="Search every listed track and embed the lyrics found"><span data-icon="bolt"></span><span class="lbl" id="btn-run-label">Fetch lyrics</span><b class="count" id="btn-run-count" hidden></b></button>
         <button class="btn icon ghost" id="btn-theme" title="Switch light / dark" aria-label="Switch light or dark theme"><span data-icon="moon"></span></button>
         <button class="btn icon ghost" id="btn-settings" title="Settings" aria-label="Settings"><span data-icon="sliders"></span></button>
       </div>
@@ -48,20 +47,19 @@
       <div class="viewtabs" id="viewtabs" role="tablist" aria-label="Show tracks" aria-controls="table">
         <button role="tab" data-filter="all" aria-selected="true" title="All tracks"><span class="vt"><span>All</span></span><b id="c-all">0</b></button>
         <button role="tab" data-filter="missing" aria-selected="false" title="Missing lyrics"><span class="vt"><i class="led missing" aria-hidden="true"></i><span>Missing</span></span><b id="c-missing">0</b></button>
-        <button role="tab" data-filter="has" aria-selected="false" title="Lyrics embedded"><span class="vt"><i class="led has" aria-hidden="true"></i><span>Embedded</span></span><b id="c-has">0</b></button>
+        <button role="tab" data-filter="has" aria-selected="false" title="Lyrics are in the file"><span class="vt"><i class="led has" aria-hidden="true"></i><span>Embedded</span></span><b id="c-has">0</b></button>
         <button role="tab" data-filter="found" aria-selected="false" title="Found, not embedded yet"><span class="vt"><i class="led found" aria-hidden="true"></i><span>Found</span></span><b id="c-found">0</b></button>
-        <button role="tab" data-filter="notfound" aria-selected="false" title="NA: no source had these lyrics"><span class="vt"><i class="led notfound" aria-hidden="true"></i><span>NA</span></span><b id="c-notfound">0</b></button>
-        <button role="tab" data-filter="error" aria-selected="false" title="Errors"><span class="vt"><i class="led error" aria-hidden="true"></i><span>Error</span></span><b id="c-error">0</b></button>
+        <button role="tab" data-filter="notfound" aria-selected="false" title="No source had lyrics for these"><span class="vt"><i class="led notfound" aria-hidden="true"></i><span>Not found</span></span><b id="c-notfound">0</b></button>
+        <button role="tab" data-filter="error" aria-selected="false" title="The search failed; try again later"><span class="vt"><i class="led error" aria-hidden="true"></i><span>Error</span></span><b id="c-error">0</b></button>
       </div>
       <div class="listbar" id="listbar" data-mode="both" role="toolbar" aria-label="Track list actions">
         <button class="selall" id="sel-all" role="checkbox" aria-checked="false" title="Select every track shown"><i class="box" aria-hidden="true"></i><span id="sel-all-label">Select all</span></button>
         <span class="selcount mono" id="sel-count" aria-live="polite"></span>
         <span class="spacer-flex"></span>
-        <button class="btn sm" id="sel-search" data-label="Search the selected tracks"><span data-icon="search"></span><span class="t">Search</span></button>
-        <button class="btn sm" id="sel-embed" data-label="Embed the lyrics that were found"><span data-icon="download"></span><span class="t">Embed</span></button>
-        <button class="btn sm" id="sel-files" data-label="Embed from, or write to, .lrc / .txt files" aria-haspopup="dialog" aria-expanded="false" aria-controls="file-pop"><span data-icon="fileText"></span><span class="t">Files</span><span class="chev" data-icon="down"></span></button>
-        <button class="btn sm" id="sel-more" data-label="More actions for the selected tracks" aria-haspopup="menu" aria-expanded="false" aria-controls="more-pop"><span data-icon="more"></span><span class="t">More</span></button>
-        <button class="btn sm" id="drop-embedded" data-label="Take every track that already has lyrics out of the list. Files are not touched."><span data-icon="listx"></span><span class="t">Drop embedded</span></button>
+        <button class="btn sm" id="sel-search" data-label="Search the selected tracks; review before embedding"><span data-icon="search"></span><span class="t">Search</span></button>
+        <button class="btn sm" id="sel-embed" data-label="Write the lyrics found into the selected files"><span data-icon="download"></span><span class="t">Embed</span></button>
+        <button class="btn sm" id="sel-files" data-label="Embed from, or save to, .lrc and .txt files" aria-haspopup="dialog" aria-expanded="false" aria-controls="file-pop"><span data-icon="fileText"></span><span class="t">LRC</span><span class="chev" data-icon="down"></span></button>
+        <button class="btn sm icon" id="sel-more" data-label="More list actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-pop"><span data-icon="more"></span></button>
       </div>
       <div class="listbox" id="table" role="listbox" aria-label="Track queue" aria-multiselectable="true" tabindex="0">
         <div class="spacer" id="spacer"></div>
@@ -70,9 +68,9 @@
       <div class="empty" id="empty">
         <div class="panel-card">
           <div class="cone"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="21"/><circle cx="32" cy="32" r="12"/><circle cx="32" cy="32" r="5" fill="currentColor"/></svg></div>
-          <h3>No tracks loaded</h3>
-          <p>Add a music folder, or drop one on this window or on the app icon. Lyrixearch scans every subfolder, reads the tags, finds the tracks without lyrics and embeds what it finds.</p>
-          <button class="btn primary" id="btn-add-2"><span data-icon="plus"></span><span>Choose a folder</span></button>
+          <h3>No tracks yet</h3>
+          <p>Import a folder, or drop one on this window. Every subfolder is read, and tracks without lyrics are ready to fetch.</p>
+          <button class="btn primary" id="btn-add-2"><span data-icon="folder"></span><span>Import folder</span></button>
         </div>
       </div>
       <div class="dropveil" id="dropveil">Drop folders or files to add them</div>
@@ -83,8 +81,8 @@
     <section class="detail" id="detail" aria-label="Track details">
       <div class="detail-empty" id="detail-empty">
         <div class="panel-card">
-          <h3>Nothing selected</h3>
-          <p>Pick a track to play it, read its lyrics, edit them, or search the web for them.</p>
+          <h3>No track selected</h3>
+          <p>Select a track to play it, read or edit its lyrics, or look them up on the web.</p>
         </div>
       </div>
       <div class="detail-body" id="detail-body" hidden>
@@ -114,18 +112,12 @@
             <button class="btn sm primary" id="act-embed" data-label="Embed these lyrics" hidden><span data-icon="download"></span><span class="t">Embed</span></button>
             <button class="btn sm" id="act-copy" data-label="Copy lyrics"><span data-icon="copy"></span><span class="t">Copy</span></button>
             <button class="btn sm" id="act-edit" data-label="Edit lyrics"><span data-icon="edit"></span><span class="t">Edit</span></button>
-            <button class="btn sm" id="act-paste" data-label="Paste lyrics from the clipboard"><span data-icon="paste"></span><span class="t">Paste</span></button>
-            <button class="btn sm" id="act-files" data-label="Embed from, or write to, .lrc / .txt files" aria-haspopup="dialog" aria-expanded="false" aria-controls="file-pop"><span data-icon="fileText"></span><span class="t">Files</span><span class="chev" data-icon="down"></span></button>
-            <button class="btn sm" id="act-web" data-label="Search the web"><span data-icon="globe"></span><span class="t">Web</span></button>
-            <button class="btn sm" id="act-requeue" data-label="Search for lyrics again"><span data-icon="refresh"></span><span class="t">Retry</span></button>
-            <button class="btn sm" id="act-reveal" data-label="Show in the file browser"><span data-icon="reveal"></span><span class="t">Reveal</span></button>
-            <button class="btn sm" id="act-path" data-label="Copy the file path"><span data-icon="link"></span><span class="t">Path</span></button>
-            <button class="btn sm ghost" id="act-remove" data-label="Remove the embedded lyrics"><span data-icon="trash"></span><span class="t">Remove</span></button>
+            <button class="btn sm" id="act-requeue" data-label="Search for this track's lyrics again"><span data-icon="refresh"></span><span class="t">Search again</span></button>
+            <button class="btn sm icon" id="act-more" data-label="More track actions" aria-haspopup="menu" aria-expanded="false" aria-controls="track-pop"><span data-icon="more"></span></button>
             <span class="spacer-flex"></span>
-            <span class="fontbtns">
+            <span class="fontbtns" role="group" aria-label="Lyrics text size">
               <button class="btn sm icon ghost" id="font-down" title="Smaller text" aria-label="Smaller lyrics text">A&minus;</button>
               <button class="btn sm icon ghost" id="font-up" title="Larger text" aria-label="Larger lyrics text">A+</button>
-              <button class="btn sm icon ghost" id="tb-mode" aria-label="Button style: icon and text" title="Button style: icon and text. Click to change."><span data-icon="rows"></span></button>
             </span>
           </div>
         </div>
@@ -133,7 +125,7 @@
           <label class="sr-only" for="edit-text">Lyrics text</label>
           <textarea id="edit-text" spellcheck="false" placeholder="Type or paste the lyrics here"></textarea>
           <div class="actions">
-            <button class="btn primary" id="edit-save"><span data-icon="check"></span><span>Save to file</span></button>
+            <button class="btn primary" id="edit-save"><span data-icon="check"></span><span>Save</span></button>
             <button class="btn" id="edit-paste"><span data-icon="paste"></span><span>Paste</span></button>
             <button class="btn ghost" id="edit-revert">Revert</button>
           </div>
@@ -153,9 +145,11 @@
             <button class="btn sm ghost" id="web-zoom-in" aria-label="Zoom page in" title="Zoom in">A+</button>
             <button class="btn sm" id="web-mobile" aria-pressed="true" title="Load pages as on a phone, which fits the narrow panel"><span data-icon="phone"></span><span>Mobile</span></button>
             <button class="btn sm ghost" id="web-external" title="Open this page in your browser"><span data-icon="external"></span><span>Browser</span></button>
+            <span class="spacer-flex"></span>
+            <button class="btn sm primary" id="web-use" title="Put the text selected on the page into the editor"><span data-icon="paste"></span><span>Use selection</span></button>
           </div>
           <div class="webslot" id="webslot"><span>The page loads here</span></div>
-          <p class="hint">Found them? Select the text, copy it, then press Paste.</p>
+          <p class="hint" id="web-hint">Select the lyrics on the page, then Use selection to review and save them.</p>
         </div>
         <div class="tab-body" id="tab-info" role="tabpanel" aria-labelledby="tab-btn-info" hidden><dl class="info" id="info"></dl></div>
       </div>
@@ -163,11 +157,17 @@
 
     <footer class="statusbar" id="statusbar" aria-label="Status">
       <nav class="counts" aria-label="Library counts">
-        <button data-filter="all"><b id="s-all">0</b> files</button><span aria-hidden="true">·</span>
+        <button data-filter="all"><b id="s-all">0</b> tracks</button><span aria-hidden="true">·</span>
         <button data-filter="has"><b id="s-has">0</b> embedded</button><span aria-hidden="true">·</span>
-        <button data-filter="missing"><b id="s-missing">0</b> left to search</button><span aria-hidden="true">·</span>
-        <button data-filter="notfound"><b id="s-notfound">0</b> NA</button>
+        <button data-filter="missing"><b id="s-missing">0</b> missing</button><span aria-hidden="true">·</span>
+        <button data-filter="notfound"><b id="s-notfound">0</b> not found</button>
       </nav>
+      <div class="checkbar" id="checkbar" role="status" hidden>
+        <i class="led notfound" aria-hidden="true"></i>
+        <span id="check-text"></span>
+        <button class="btn sm" id="check-open">Verify</button>
+        <button class="btn sm ghost" id="check-skip">Skip</button>
+      </div>
       <div class="progress" id="progress" hidden>
         <span class="mono" id="progress-text" aria-live="polite"></span>
         <div class="meter" aria-hidden="true"><i id="meter-fill"></i></div>
@@ -193,9 +193,24 @@
     </div>
     <p class="hint" id="fp-scope"></p>
   </div>
-  <div class="popover floating menu" id="more-pop" role="menu" aria-label="More actions" hidden>
-    <button role="menuitem" id="mn-remove"><span data-icon="trash"></span><span>Remove lyrics from the files</span></button>
-    <button role="menuitem" id="mn-drop"><span data-icon="x"></span><span>Take out of the list</span></button>
+  <div class="popover floating menu" id="import-pop" role="menu" aria-label="Import" hidden>
+    <button role="menuitem" id="mn-import-files"><span data-icon="filePlus"></span><span>Files…</span></button>
+    <button role="menuitem" id="mn-import-folder"><span data-icon="folder"></span><span>Folder…</span></button>
+    <p class="menu-note">Or drop files and folders on the window.</p>
+  </div>
+  <div class="popover floating menu" id="more-pop" role="menu" aria-label="More list actions" hidden>
+    <button role="menuitem" id="mn-drop"><span data-icon="x"></span><span>Remove from list</span></button>
+    <button role="menuitem" id="mn-clear-embedded"><span data-icon="listx"></span><span>Clear embedded from list</span></button>
+    <hr />
+    <button role="menuitem" class="danger" id="mn-remove"><span data-icon="trash"></span><span>Delete lyrics from files…</span></button>
+  </div>
+  <div class="popover floating menu" id="track-pop" role="menu" aria-label="More track actions" hidden>
+    <button role="menuitem" id="tm-paste"><span data-icon="paste"></span><span>Paste lyrics</span></button>
+    <button role="menuitem" id="tm-files"><span data-icon="fileText"></span><span>LRC and TXT files…</span></button>
+    <button role="menuitem" id="tm-reveal"><span data-icon="reveal"></span><span id="tm-reveal-label">Show in file manager</span></button>
+    <button role="menuitem" id="tm-path"><span data-icon="link"></span><span>Copy file path</span></button>
+    <hr />
+    <button role="menuitem" class="danger" id="tm-remove"><span data-icon="trash"></span><span>Delete lyrics from file…</span></button>
   </div>
 
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>

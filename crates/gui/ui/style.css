@@ -38,9 +38,10 @@
   --silver-hover: oklch(0.96 0.004 260);
   --silver-fg: oklch(0.18 0.006 260);
   --silver-hi: oklch(0.985 0.003 260 / 0.55);
-  --accent: oklch(0.84 0.2 145);
-  --accent-text: oklch(0.84 0.2 145);
-  --accent-fg: oklch(0.18 0.02 145);
+  /* brand green #65E51C (the icon's LED): 10.3:1 or better on every dark surface */
+  --accent: oklch(0.817 0.245 138);
+  --accent-text: oklch(0.817 0.245 138);
+  --accent-fg: oklch(0.18 0.02 138);
   --led-off: oklch(0.27 0.008 260);
   --led-amber: oklch(0.82 0.15 78);
   --led-red: oklch(0.7 0.19 25);
@@ -76,9 +77,10 @@
   --silver-hover: oklch(0.32 0.008 260);
   --silver-fg: oklch(0.96 0.003 260);
   --silver-hi: oklch(0.985 0.003 260 / 0.18);
-  --accent: oklch(0.57 0.17 145);
-  --accent-text: oklch(0.45 0.12 145);
-  --accent-fg: oklch(0.98 0.01 145);
+  /* brand hue, darkened for light surfaces: lamps/focus 3.7:1, text 5.2:1 or better */
+  --accent: oklch(0.57 0.18 138);
+  --accent-text: oklch(0.48 0.14 138);
+  --accent-fg: oklch(0.98 0.01 138);
   --led-off: oklch(0.84 0.006 260);
   --led-amber: oklch(0.72 0.15 70);
   --led-red: oklch(0.5 0.2 27);
@@ -87,8 +89,8 @@
   --amber-text: oklch(0.48 0.11 70);
   --purple-text: oklch(0.46 0.17 305);
   --blue-text: oklch(0.46 0.14 245);
-  --cta: oklch(0.5 0.15 145);
-  --cta-fg: oklch(0.99 0.005 145);
+  --cta: oklch(0.5 0.15 138);
+  --cta-fg: oklch(0.99 0.005 138);
   --cta-highlight: oklch(0.985 0.003 260 / 0.22);
   --cta-count: oklch(0.155 0.006 260 / 0.24);
   --selection: color-mix(in oklab, var(--accent) 26%, transparent);
@@ -215,10 +217,14 @@ svg.i { display: block; width: 16px; height: 16px; stroke: currentColor; fill: n
 #libraries li .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font: var(--text-xs) var(--font-mono); }
 #libraries li button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: var(--radius); }
 #libraries li button:hover { color: var(--fg); background: var(--surface-3); }
-.popover.floating { position: fixed; top: 0; left: 0; width: 320px; z-index: 50; transform-origin: 100% 0; }
+.popover.floating { position: fixed; top: 0; left: 0; right: auto; width: 320px; z-index: 50; transform-origin: 100% 0; }
 .popover.menu { width: auto; min-width: 240px; padding: var(--s1); }
 .popover.menu button { display: flex; align-items: center; gap: var(--s2); width: 100%; min-height: 32px; padding: 0 var(--s2); border: 0; border-radius: var(--radius); background: none; color: var(--fg); cursor: pointer; text-align: left; }
 .popover.menu button:hover { background: var(--surface-3); }
+.popover.menu button:disabled { opacity: 0.45; cursor: default; background: none; }
+.popover.menu button.danger { color: var(--led-red); }
+.popover.menu hr { margin: var(--s1) 0; border: 0; border-top: 1px solid var(--border); }
+.popover.menu .menu-note { margin: var(--s1) var(--s2) var(--s1); color: var(--faint); font-size: var(--text-xs); }
 .pop-actions.split { display: grid; grid-template-columns: 1fr 1fr; }
 .pop-actions.split .btn { padding: 0 var(--s2); }
 .field { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2) 0; }
@@ -253,7 +259,7 @@ svg.i { display: block; width: 16px; height: 16px; stroke: currentColor; fill: n
 .row .meta1, .row .meta2 { color: var(--muted); }
 .row .meta1 svg, .row .meta2 svg { width: 13px; height: 13px; }
 .row .side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s1); }
-.row .src { font: var(--text-xs) var(--font-mono); color: var(--muted); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .src { font: 600 var(--text-xs)/1.4 var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .src.lit { color: var(--accent-text); }
 .row .src.bad { color: var(--led-red); }
 .row .src.warn { color: var(--amber-text); }
@@ -289,6 +295,9 @@ svg.i { display: block; width: 16px; height: 16px; stroke: currentColor; fill: n
 .counts button:hover { color: var(--fg); background: var(--surface-3); }
 .counts b { font: 500 var(--text-xs) var(--font-mono); color: var(--fg); }
 .progress { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.checkbar { display: flex; align-items: center; gap: var(--s2); min-width: 0; color: var(--fg); }
+.checkbar[hidden] { display: none; }
+.checkbar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .progress .mono { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meter { width: 180px; height: 8px; flex: none; background: repeating-linear-gradient(90deg, var(--led-off) 0 6px, transparent 6px 8px); }
 .meter i { display: block; height: 100%; background: var(--accent); transform-origin: left center; transform: scaleX(var(--p, 0)); transition: transform var(--dur-base) var(--ease-out); -webkit-mask: repeating-linear-gradient(90deg, var(--fg) 0 6px, transparent 6px 8px); mask: repeating-linear-gradient(90deg, var(--fg) 0 6px, transparent 6px 8px); }
@@ -299,7 +308,7 @@ svg.i { display: block; width: 16px; height: 16px; stroke: currentColor; fill: n
 .detail-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .d-head { padding: var(--s3) var(--s4) var(--s2); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--s2); }
 .d-line1 { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
-.d-title { flex: 1; min-width: 0; font: 600 var(--text-md)/1.3 var(--font-display); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-title { flex: 1; min-width: 0; font: 600 var(--text-md)/1.3 var(--font-body); letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-tags { display: flex; gap: var(--s1); flex: none; }
 .player { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: var(--s2); }
 .player .mono { color: var(--muted); min-width: 32px; }
@@ -307,7 +316,7 @@ svg.i { display: block; width: 16px; height: 16px; stroke: currentColor; fill: n
 .player input[type="range"]:disabled { opacity: 0.45; }
 .d-meta { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-meta b { color: var(--fg); font-weight: 500; }
-.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--s2); border: 1px solid var(--border-strong); border-radius: var(--radius); font: var(--text-xs) var(--font-mono); color: var(--muted); white-space: nowrap; }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--s2); border: 1px solid var(--border-strong); border-radius: var(--radius); font: 600 var(--text-xs)/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); white-space: nowrap; }
 .tag.lit { color: var(--accent-text); border-color: color-mix(in oklab, var(--accent) 55%, var(--border-strong)); }
 .tag.blue { color: var(--blue-text); border-color: color-mix(in oklab, var(--led-blue) 55%, var(--border-strong)); }
 .tag.purple { color: var(--purple-text); border-color: color-mix(in oklab, var(--led-purple) 55%, var(--border-strong)); }
@@ -320,7 +329,7 @@ svg.i { display: block; width: 16px; height: 16px; stroke: currentColor; fill: n
 .tab-body[hidden] { display: none; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .lyrics-tab { overflow: hidden; }
-pre.lyrics { margin: 0; white-space: pre-wrap; font: 400 var(--lyrics-size)/1.7 var(--font-body); flex: 1; min-height: 0; overflow: auto; max-width: 70ch; }
+pre.lyrics { margin: 0; white-space: pre-wrap; font: 400 var(--lyrics-size)/1.7 var(--font-body); flex: 1; min-height: 0; overflow: auto; padding-inline-end: max(0px, calc(100% - 70ch)); }
 pre.lyrics.placeholder { color: var(--muted); }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1); padding-top: var(--s3); border-top: 1px solid var(--border); flex: none; }
 .spacer-flex { flex: 1; }
