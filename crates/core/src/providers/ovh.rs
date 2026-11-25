@@ -1,5 +1,6 @@
 //! lyrics.ovh — simple exact-name API, plain lyrics only. Used as a last resort since the
-//! service does no fuzzy matching (so the score is 1.0 only by construction).
+//! service does no fuzzy matching: a hit is for exactly the names asked, and the score says how
+//! close those (cleaned) names are to the track's own.
 
 use super::CheckStatus;
 use super::{Provider, USER_AGENT};
@@ -33,6 +34,7 @@ impl Provider for LyricsOvh {
         if text.is_empty() {
             return Ok(None);
         }
+        let score = crate::matching::score(q, &artist, &title, None).overall;
         Ok(Some(Lyrics {
             plain: Some(text),
             synced: None,
@@ -40,7 +42,7 @@ impl Provider for LyricsOvh {
             url: Some(url.to_string()),
             matched_artist: artist,
             matched_title: title,
-            score: 0.8,
+            score,
         }))
     }
 }

@@ -1,5 +1,8 @@
 //! DarkLyrics: metal lyrics, one page per album with every track on it. The site only answers
 //! over plain http, so that is what is used.
+//!
+//! The original app sent a computed `lastvisitts` cookie. Checked on 2026-11-25: album pages
+//! answer in full without it, so none is sent.
 
 use super::web::{get_html, html_to_text};
 use super::Provider;
@@ -18,9 +21,12 @@ const BASE: &str = "http://www.darklyrics.com";
 
 static TRACK_HEAD: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?s)<h3><a name="(\d+)">(?:\d+\.\s*)?(.*?)</a></h3>"#).unwrap());
 static ALBUM_LINK: Lazy<Regex> = Lazy::new(|| Regex::new(r#"lyrics/([a-z0-9]+)/([a-z0-9]+)\.html"#).unwrap());
+/// An album page, as the web-search fallback finds it.
+static PAGE_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https?://(?:www\.)?darklyrics\.com/lyrics/([a-z0-9]+)/([a-z0-9]+)\.html(?:#\d+)?$").unwrap());
 
+/// "Mötley Crüe" -> "motleycrue": the site keeps only ASCII letters and digits, accents folded.
 fn slug(s: &str) -> String {
-    clean_title(s).to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect()
+    super::web::ascii_fold(&clean_title(s)).to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect()
 }
 
 fn artist_slugs(artist: &str) -> Vec<String> {
@@ -67,6 +73,30 @@ impl Provider for DarkLyrics {
     /// Up to a handful of album pages from a slow server.
     fn timeout(&self) -> Option<std::time::Duration> {
         Some(std::time::Duration::from_secs(45))
+    }
+
+    fn supports_url(&self, url: &str) -> bool {
+        PAGE_URL.is_match(url)
+    }
+
+    /// An album page from a web search: only used when its artist is the one asked for, and then
+    /// the best-matching track on it is taken.
+    async fn fetch_url(&self, http: &reqwest::Client, url: &str, q: &Query, cfg: &Config) -> Result<Option<Lyrics>> {
+        let Some(c) = PAGE_URL.captures(url) else { return Ok(None) };
+        if !artist_slugs(&q.artist).iter().any(|a| a == &c[1]) {
+            return Ok(None);
+        }
+        let page = url.split('#').next().unwrap_or(url);
+        let html = get_html(http, page, &[]).await?;
+        Ok(best_track(&html, q, cfg.min_score).map(|(sc, num, title, text)| Lyrics {
+            plain: Some(text),
+            source: "darklyrics".into(),
+            url: Some(format!("{page}#{num}")),
+            matched_artist: q.artist.clone(),
+            matched_title: title,
+            score: sc,
+            ..Default::default()
+        }))
     }
 
     async fn fetch(&self, http: &reqwest::Client, q: &Query, cfg: &Config) -> Result<Option<Lyrics>> {
@@ -126,5 +156,30 @@ mod tests {
         let q = Query { artist: "Metallica".into(), title: "Battery".into(), ..Default::default() };
         let (_, _, _, text) = best_track(html, &q, 0.8).unwrap();
         assert_eq!(text, "Lashing out\nWeak are ripped\n\nSmashing through");
+    }
+
+    #[test]
+    fn slugs_fold_accents_and_drop_the() {
+        assert_eq!(slug("Mötley Crüe"), "motleycrue");
+        assert_eq!(slug("Iron Maiden"), "ironmaiden");
+        assert_eq!(artist_slugs("The Black Dahlia Murder"), vec!["theblackdahliamurder".to_string(), "blackdahliamurder".to_string()]);
+    }
+
+    #[test]
+    fn recognises_album_pages_only() {
+        assert!(DarkLyrics.supports_url("http://www.darklyrics.com/lyrics/ironmaiden/pieceofmind.html#1"));
+        assert!(DarkLyrics.supports_url("https://darklyrics.com/lyrics/metallica/masterofpuppets.html"));
+        assert!(!DarkLyrics.supports_url("http://www.darklyrics.com/m/metallica.html"));
+        assert!(!DarkLyrics.supports_url("https://genius.com/Metallica-battery-lyrics"));
+    }
+
+    #[test]
+    fn picks_the_matching_track_and_rejects_others() {
+        let html = "<div class=\"lyrics\"><h3><a name=\"1\">1. Battery</a></h3><br />Lashing out<br />\n<h3><a name=\"2\">2. Master Of Puppets</a></h3><br />End of passion play<br />Crumbling away<br />\n<div class=\"thanks\">x</div>";
+        let q = Query { artist: "Metallica".into(), title: "Master of Puppets".into(), ..Default::default() };
+        let (_, num, title, text) = best_track(html, &q, 0.8).unwrap();
+        assert_eq!((num.as_str(), title.as_str(), text.as_str()), ("2", "Master Of Puppets", "End of passion play\nCrumbling away"));
+        let q = Query { artist: "Metallica".into(), title: "One".into(), ..Default::default() };
+        assert!(best_track(html, &q, 0.8).is_none());
     }
 }

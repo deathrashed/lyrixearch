@@ -79,6 +79,31 @@ pub fn balanced_div(html: &str, open_end: usize) -> &str {
     rest
 }
 
+/// Fold common Latin accents to plain ASCII letters ("Mötley Crüe" -> "Motley Crue"), as lyrics
+/// sites do when they build URLs from names.
+pub fn ascii_fold(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ä' | 'ã' | 'å' => 'a',
+            'À' | 'Á' | 'Â' | 'Ä' | 'Ã' | 'Å' => 'A',
+            'è' | 'é' | 'ê' | 'ë' => 'e',
+            'È' | 'É' | 'Ê' | 'Ë' => 'E',
+            'ì' | 'í' | 'î' | 'ï' => 'i',
+            'Ì' | 'Í' | 'Î' | 'Ï' => 'I',
+            'ò' | 'ó' | 'ô' | 'ö' | 'õ' | 'ø' => 'o',
+            'Ò' | 'Ó' | 'Ô' | 'Ö' | 'Õ' | 'Ø' => 'O',
+            'ù' | 'ú' | 'û' | 'ü' => 'u',
+            'Ù' | 'Ú' | 'Û' | 'Ü' => 'U',
+            'ñ' => 'n',
+            'Ñ' => 'N',
+            'ç' => 'c',
+            'Ç' => 'C',
+            'ý' | 'ÿ' => 'y',
+            other => other,
+        })
+        .collect()
+}
+
 pub fn first_group<'a>(re: &Regex, s: &'a str) -> Option<&'a str> {
     re.captures(s).and_then(|c| c.get(1)).map(|m| m.as_str())
 }
@@ -100,6 +125,13 @@ mod tests {
     #[test]
     fn text_conversion() {
         assert_eq!(html_to_text("a<br/>b &amp; c<div>x</div>"), "a\nb & c\nx");
+    }
+
+    #[test]
+    fn folds_accents() {
+        assert_eq!(ascii_fold("Mötley Crüe"), "Motley Crue");
+        assert_eq!(ascii_fold("Beyoncé, Sigur Rós, Ñu"), "Beyonce, Sigur Ros, Nu");
+        assert_eq!(ascii_fold("夜に駆ける"), "夜に駆ける");
     }
 
     #[test]

@@ -67,19 +67,24 @@ pub trait Provider: Send + Sync {
 pub fn all(plugins_dir: &std::path::Path) -> Vec<Arc<dyn Provider>> {
     let genius: Arc<dyn Provider> = Arc::new(genius::Genius);
     let lyricsfreak: Arc<dyn Provider> = Arc::new(lyricsfreak::LyricsFreak);
-    let ddg: Arc<dyn Provider> = Arc::new(ddg::DuckDuckGo { scrapers: vec![genius.clone(), lyricsfreak.clone()] });
+    let darklyrics: Arc<dyn Provider> = Arc::new(darklyrics::DarkLyrics);
+    let utaten: Arc<dyn Provider> = Arc::new(utaten::UtaTen);
+    let bandcamp: Arc<dyn Provider> = Arc::new(bandcamp::Bandcamp);
+    // every scraper that can read a page straight from a URL; the web search hands results to them
+    let scrapers = vec![genius.clone(), lyricsfreak.clone(), darklyrics.clone(), utaten.clone(), bandcamp.clone()];
+    let ddg: Arc<dyn Provider> = Arc::new(ddg::DuckDuckGo { scrapers });
     let mut v: Vec<Arc<dyn Provider>> = vec![
         Arc::new(local::LocalFiles),
         genius,
         Arc::new(lrclib::Lrclib),
         lyricsfreak,
-        Arc::new(darklyrics::DarkLyrics),
+        darklyrics,
         ddg,
         Arc::new(netease::Netease),
         Arc::new(qq::QqMusic),
         Arc::new(kugou::Kugou),
-        Arc::new(utaten::UtaTen),
-        Arc::new(bandcamp::Bandcamp),
+        utaten,
+        bandcamp,
         Arc::new(ovh::LyricsOvh),
     ];
     let (plugins, _broken) = plugin::discover(plugins_dir);

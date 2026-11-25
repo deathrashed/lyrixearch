@@ -16,6 +16,25 @@ use serde_json::{json, Value};
 pub struct Bandcamp;
 
 static LYRICS_DIV: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<div class="tralbumData lyricsText">"#).unwrap());
+/// A track page, as the web-search fallback finds it.
+static PAGE_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://[a-z0-9-]+\.bandcamp\.com/track/[^/?#]+/?$").unwrap());
+/// `<meta property="og:title" content="Holocene, by Bon Iver">`
+static OG_TITLE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<meta property="og:title" content="([^"]*), by ([^"]*)">"#).unwrap());
+
+/// The lyrics the artist published on a track page.
+fn page_lyrics(html: &str) -> Option<String> {
+    let m = LYRICS_DIV.find(html)?;
+    // the page source is indented and wrapped; only <br> means a line break
+    let inner = balanced_div(html, m.end()).replace(['\r', '\n'], " ");
+    let text = html_to_text(&inner).lines().map(str::trim).collect::<Vec<_>>().join("\n");
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// `(title, artist)` from a track page's `og:title`.
+fn page_names(html: &str) -> Option<(String, String)> {
+    let c = OG_TITLE.captures(html)?;
+    Some((html_escape::decode_html_entities(&c[1]).into_owned(), html_escape::decode_html_entities(&c[2]).into_owned()))
+}
 
 #[async_trait]
 impl Provider for Bandcamp {
@@ -49,11 +68,7 @@ impl Provider for Bandcamp {
             return Ok(None);
         }
         let html = get_html(http, &url, &[]).await?;
-        let Some(m) = LYRICS_DIV.find(&html) else { return Ok(None) };
-        // the page source is indented and wrapped; only <br> means a line break
-        let inner = balanced_div(&html, m.end()).replace(['\r', '\n'], " ");
-        let text = html_to_text(&inner).lines().map(str::trim).collect::<Vec<_>>().join("\n");
-        Ok((!text.trim().is_empty()).then(|| Lyrics {
+        Ok(page_lyrics(&html).map(|text| Lyrics {
             plain: Some(text),
             source: "bandcamp".into(),
             url: Some(url),
@@ -62,5 +77,54 @@ impl Provider for Bandcamp {
             score: sc,
             ..Default::default()
         }))
+    }
+
+    fn supports_url(&self, url: &str) -> bool {
+        PAGE_URL.is_match(url)
+    }
+
+    /// A track page from a web search, used only when its title and artist match the query.
+    async fn fetch_url(&self, http: &reqwest::Client, url: &str, q: &Query, cfg: &Config) -> Result<Option<Lyrics>> {
+        let html = get_html(http, url, &[]).await?;
+        let Some((title, artist)) = page_names(&html) else { return Ok(None) };
+        let sc = score(q, &artist, &title, None);
+        if !sc.accepted(cfg.min_score) {
+            return Ok(None);
+        }
+        Ok(page_lyrics(&html).map(|text| Lyrics {
+            plain: Some(text),
+            source: "bandcamp".into(),
+            url: Some(url.to_string()),
+            matched_artist: artist,
+            matched_title: title,
+            score: sc.overall,
+            ..Default::default()
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // trimmed from a bandcamp.com track page, 2026-11
+    const PAGE: &str = r#"<meta property="og:title" content="Holocene, by Bon Iver">
+    <div class="tralbumData lyricsText">Someway, baby, it&#39;s part of me, apart from me<br>
+        You&#39;re laying waste to Halloween<br><br>
+        And at once I knew</div><div class="other">x</div>"#;
+
+    #[test]
+    fn reads_a_track_page() {
+        assert_eq!(page_names(PAGE), Some(("Holocene".into(), "Bon Iver".into())));
+        assert_eq!(page_lyrics(PAGE).unwrap(), "Someway, baby, it's part of me, apart from me\nYou're laying waste to Halloween\n\nAnd at once I knew");
+        assert_eq!(page_lyrics("<html>no lyrics here</html>"), None);
+    }
+
+    #[test]
+    fn recognises_track_pages_only() {
+        assert!(Bandcamp.supports_url("https://boniver.bandcamp.com/track/holocene"));
+        assert!(!Bandcamp.supports_url("https://boniver.bandcamp.com/album/bon-iver"));
+        assert!(!Bandcamp.supports_url("http://boniver.bandcamp.com/track/holocene"));
+        assert!(!Bandcamp.supports_url("https://bandcamp.com.evil.example/track/x"));
     }
 }

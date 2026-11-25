@@ -25,22 +25,9 @@ static NON_ALNUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^a-z0-9]+").unwrap())
 /// "Beyoncé & Jay-Z" -> "beyonce-and-jay-z" style slug used in genius.com URLs.
 pub fn slugify(s: &str) -> String {
     let s = s.to_lowercase().replace(['\'', '’', '.'], "").replace('&', " and ");
-    let ascii: String = s.chars().map(fold).collect();
+    let ascii = super::web::ascii_fold(&s);
     let slug = NON_ALNUM.replace_all(&ascii, "-");
     slug.trim_matches('-').to_string()
-}
-
-fn fold(c: char) -> char {
-    match c {
-        'à' | 'á' | 'â' | 'ä' | 'ã' | 'å' => 'a',
-        'è' | 'é' | 'ê' | 'ë' => 'e',
-        'ì' | 'í' | 'î' | 'ï' => 'i',
-        'ò' | 'ó' | 'ô' | 'ö' | 'õ' => 'o',
-        'ù' | 'ú' | 'û' | 'ü' => 'u',
-        'ñ' => 'n',
-        'ç' => 'c',
-        other => other,
-    }
 }
 
 static EXCLUDED: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<div[^>]*data-exclude-from-selection="true"[^>]*>"#).unwrap());
