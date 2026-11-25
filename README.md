@@ -140,6 +140,7 @@ Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixe
 | --- | --- |
 | `scan <paths> [-r]` | list tracks and which lack lyrics |
 | `fetch <paths> [-r] [--dry-run] [--overwrite] [--synced] [--sidecar off\|auto\|lrc\|txt] [--keep-mtime\|--no-keep-mtime]` | search and embed |
+| `fetch … --write-transcriptions` | also write AI transcriptions (otherwise they are only reported) |
 | `embed-files <paths…> [--overwrite] [--dry-run]` | embed the `.lrc`/`.txt` beside each track (an `.lrc` fills the synced field too) |
 | `show <file>` / `remove <paths…> [--yes]` | print or delete embedded lyrics (`remove` needs `--yes` without a terminal) |
 | `set <file> [--from lyrics.lrc]` | embed lyrics you supply, from a file or stdin (timed lyrics keep their timing) |
@@ -165,6 +166,8 @@ Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixe
 | `darklyrics` | metal lyrics, album pages (plain http only) |
 | `ddg_search` | web-search fallback: finds a page one of the scrapers understands |
 | `metal_archives` | Metal Archives song by song, the original release first (from metallum-nim); in the desktop app its Cloudflare check is answered in the hidden browser |
+| `spotify`, `apple_music`, `deezer` | with your own account, **synced** (word-by-word from Apple Music and Deezer): sign in under Settings → Accounts on the service's own page; lookups run in that signed-in page through the service's web player. Off until you sign in; desktop app only |
+| `ai_transcribe` | writes the lyrics down from the track with Whisper: whisper.cpp on your computer (model downloaded from Settings → Transcription) or Groq / OpenAI with your API key. Tried last, off by default; results wait for you to check them |
 | `bandcamp` | lyrics the artist published on the track page |
 | `lyrics_ovh` | exact-name API |
 
