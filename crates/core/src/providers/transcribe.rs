@@ -176,7 +176,8 @@ fn local(path: &Path, cfg: &Config) -> Result<Vec<Segment>> {
     let result = (|| {
         convert(path, &wav, &["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"])?;
         let lang = cfg.transcribe_language.as_deref().filter(|l| !l.trim().is_empty()).unwrap_or("auto");
-        let out = Command::new(&bin).arg("-m").arg(&model).arg("-f").arg(&wav).args(["-l", lang, "-oj", "-np", "-ml", "50", "-sow", "-of"]).arg(&base).output()?;
+        let out =
+            Command::new(&bin).arg("-m").arg(&model).arg("-f").arg(&wav).args(["-l", lang, "-oj", "-np", "-ml", "50", "-sow", "-of"]).arg(&base).output()?;
         if !out.status.success() {
             bail!("whisper.cpp failed: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").trim());
         }
