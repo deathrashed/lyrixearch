@@ -1828,6 +1828,10 @@ fn main() {
                         other => format!("{other:?}"),
                     };
                     eprintln!("CHECKTEST {summary} in {:.1}s", t.elapsed().as_secs_f32());
+                    // which windows exist and which a person can see (the hidden ones must stay hidden)
+                    for (label, w) in h.webview_windows() {
+                        eprintln!("CHECKTEST window {label}: visible={:?}", w.is_visible().ok());
+                    }
                     h.exit(0);
                 });
             }
