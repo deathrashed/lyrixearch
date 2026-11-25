@@ -20,10 +20,6 @@
         <input id="filter" type="search" placeholder="Filter tracks" autocomplete="off" spellcheck="false" />
       </label>
       <div class="top-actions">
-        <div class="engine" title="Lit green when ready, blinks amber while searching">
-          <i class="led on" id="engine-led" role="img" aria-label="Engine ready"></i>
-          <span class="silk" id="engine-text">Ready</span>
-        </div>
         <button class="btn" id="btn-import" aria-haspopup="menu" aria-expanded="false" aria-controls="import-pop" title="Add tracks to the list"><span data-icon="plus"></span><span class="lbl">Import</span><span class="chev" data-icon="down"></span></button>
         <div class="pop-wrap">
           <button class="btn" id="btn-library" aria-haspopup="dialog" aria-expanded="false" aria-controls="library-pop" title="Library folders"><span data-icon="library"></span><span class="lbl">Library</span><span data-icon="down"></span></button>
@@ -37,7 +33,7 @@
             </div>
           </div>
         </div>
-        <button class="btn cta" id="btn-run" title="Search every listed track and embed the lyrics found"><span data-icon="bolt"></span><span class="lbl" id="btn-run-label">Fetch lyrics</span><b class="count" id="btn-run-count" hidden></b></button>
+        <button class="btn cta" id="btn-run" title="Search every listed track and embed the lyrics found"><span data-icon="bolt"></span><span class="lbl" id="btn-run-label">Fetch</span><b class="count" id="btn-run-count" hidden></b></button>
         <button class="btn icon ghost" id="btn-theme" title="Switch light / dark" aria-label="Switch light or dark theme"><span data-icon="moon"></span></button>
         <button class="btn icon ghost" id="btn-settings" title="Settings" aria-label="Settings"><span data-icon="sliders"></span></button>
       </div>
@@ -156,21 +152,18 @@
     </section>
 
     <footer class="statusbar" id="statusbar" aria-label="Status">
-      <nav class="counts" aria-label="Library counts">
-        <button data-filter="all"><b id="s-all">0</b> tracks</button><span aria-hidden="true">·</span>
-        <button data-filter="has"><b id="s-has">0</b> embedded</button><span aria-hidden="true">·</span>
-        <button data-filter="missing"><b id="s-missing">0</b> missing</button><span aria-hidden="true">·</span>
-        <button data-filter="notfound"><b id="s-notfound">0</b> not found</button>
-      </nav>
+      <!-- one status line: the engine lamp with Ready, replaced by live progress while a search runs -->
+      <div class="status" id="status" role="status" aria-live="polite">
+        <i class="led on" id="engine-led" aria-hidden="true"></i>
+        <span class="silk" id="engine-text">Ready</span>
+        <span class="status-detail" id="progress-text"></span>
+        <div class="meter" id="meter" aria-hidden="true" hidden><i id="meter-fill"></i></div>
+      </div>
       <div class="checkbar" id="checkbar" role="status" hidden>
         <i class="led notfound" aria-hidden="true"></i>
         <span id="check-text"></span>
         <button class="btn sm" id="check-open">Verify</button>
         <button class="btn sm ghost" id="check-skip">Skip</button>
-      </div>
-      <div class="progress" id="progress" hidden>
-        <span class="mono" id="progress-text" aria-live="polite"></span>
-        <div class="meter" aria-hidden="true"><i id="meter-fill"></i></div>
       </div>
       <button class="btn sm ghost" id="btn-log" aria-haspopup="dialog" aria-controls="session-log"><span data-icon="fileText"></span><span>Log</span></button>
     </footer>

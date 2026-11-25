@@ -167,10 +167,6 @@
     const all = [...S.tracks.values()];
     const n = Object.fromEntries(Object.entries(predicates).map(([k, p]) => [k, all.filter(p).length]));
     for (const k of Object.keys(n)) $(`#c-${k}`).textContent = n[k];
-    $('#s-all').textContent = n.all;
-    $('#s-has').textContent = n.has;
-    $('#s-missing').textContent = n.missing;
-    $('#s-notfound').textContent = n.notfound;
   }
 
   // Tracks the big button searches: everything in the list below it, minus the ones that already
@@ -316,26 +312,25 @@
     run.classList.toggle('stop', running);
     run.disabled = !running && ids.length === 0;
     run.querySelector('[data-icon]').innerHTML = icon(running ? 'stop' : 'bolt');
-    $('#btn-run-label').textContent = running ? 'Stop' : 'Fetch lyrics';
+    $('#btn-run-label').textContent = running ? 'Stop' : 'Fetch';
     const cnt = $('#btn-run-count');
     cnt.hidden = running || ids.length === 0;
     cnt.textContent = ids.length;
     run.title = running ? 'Stop searching' : ids.length ? `Search ${ids.length} listed track${ids.length === 1 ? '' : 's'} and embed the lyrics found${S.replace ? ', replacing existing lyrics' : ''}` : 'Every listed track has lyrics';
-    const led = $('#engine-led');
-    led.className = `led ${running ? 'searching' : 'on'}`;
-    led.setAttribute('aria-label', running ? 'Engine searching' : 'Engine ready');
-    $('#engine-text').textContent = running ? 'Searching' : 'Ready';
-
-    const box = $('#progress');
+    // status line: Ready, or the live search, or the result for a few seconds after it ends
     const recentlyDone = pr && !running && Date.now() - S.progressAt < 9000;
-    box.hidden = !(running || recentlyDone);
-    if (!box.hidden) {
+    $('#engine-led').className = `led ${running ? 'searching' : 'on'}`;
+    $('#engine-text').textContent = running ? 'Searching' : recentlyDone ? 'Done' : 'Ready';
+    $('#meter').hidden = !running;
+    let detail = '';
+    if (running) {
       $('#meter-fill').style.setProperty('--p', pr.total ? pr.done / pr.total : 0);
-      $('#progress-text').textContent = running
-        ? `Searching ${pr.done}/${pr.total}${S.current ? ' · ' + S.current : ''} · ${pr.found} found · ${pr.missed} not found${pr.written ? ' · ' + pr.written + ' embedded' : ''}`
-        : `Done · ${pr.found} found${pr.written ? ', ' + pr.written + ' embedded' : ''}, ${pr.missed} not found`;
-      if (!running) setTimeout(renderTop, 9100);
+      detail = `${pr.done}/${pr.total}${S.current ? ' · ' + S.current : ''} · ${pr.found} found`;
+    } else if (recentlyDone) {
+      detail = `${pr.found} found${pr.written ? ' · ' + pr.written + ' embedded' : ''} · ${pr.missed} not found`;
+      setTimeout(renderTop, 9100);
     }
+    $('#progress-text').textContent = detail;
   }
 
   // ───────────────────────── player ─────────────────────────
@@ -1009,7 +1004,6 @@
       const i = vt.findIndex((b) => b.dataset.filter === S.filter);
       setFilter(vt[(i + (e.key === 'ArrowRight' ? 1 : vt.length - 1)) % vt.length].dataset.filter, true);
     });
-    $('#statusbar .counts').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setFilter(b.dataset.filter); });
 
     const addFolder = async () => addPaths(await pickFolders());
     $('#btn-add-2').onclick = addFolder;

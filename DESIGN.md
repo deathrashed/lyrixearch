@@ -88,7 +88,7 @@
 - Queue row: 56px cover thumbnail (grille placeholder until the art loads) with the status lamp top-left and the duration in a solid badge bottom-right, then three lines (file name, artist, title) and, at the right, the state in words plus two icon buttons (search, show in file browser). 72px rows, defined edge between rows, selection by lightness.
 - Player: silver icon button, tabular time, accent-colored range, all native controls; the seek bar is disabled until the track is loaded.
 - Resizable divider: 6px hit area on a 1px edge, `role="separator"` with `aria-valuenow`, arrow keys (24px, shift 80px), Home and End, double-click to reset; the native browser panel is hidden while dragging.
-- Footer status bar: counts as buttons that filter, and progress as words plus the LED bar-graph.
+- Footer status bar: the engine lamp and its state in words, replaced by live progress (words plus the LED bar-graph) during a search; library counts are in the filter tabs only.
 - Focus ring: box-shadow 0 0 0 2px bg, 0 0 0 4px led-green (3:1 or better against both surfaces).
 
 ## Wording
@@ -98,7 +98,7 @@ One term per concept, in the interface and in tooltips:
 | concept | word |
 |---|---|
 | add tracks | Import (Files…, Folder…) |
-| search everything listed and write what is found | Fetch lyrics |
+| search everything listed and write what is found | Fetch |
 | search the selection without writing | Search |
 | write found lyrics into the files | Embed |
 | no lyrics yet | Missing |
@@ -109,7 +109,8 @@ One term per concept, in the interface and in tooltips:
 
 ## Toolbars and menus
 
-- Header: brand, filter, engine lamp, Import menu, Library menu, Fetch lyrics (the only filled button), theme, settings.
+- Header: brand, filter, Import menu, Library menu, Fetch with its count (the only filled button), theme, settings.
+- Status bar: one line. The engine lamp with READY; while a search runs, SEARCHING with done/total, the current track and source, the found count and the LED meter; DONE with the result for a few seconds after. A bot check waiting for the person takes its place with Verify and Skip. Counts live only in the filter tabs, never repeated here.
 - List bar: selection on the left; Search, Embed, LRC files, then one overflow (⋯) for rarer list actions.
 - Inspector: Copy, Edit, Search again and one overflow (⋯); text size on the far right. Everything that writes a file says so in its label or tooltip.
 - Menus are fixed popovers anchored to their button (never full width), destructive item last and red.
@@ -169,7 +170,7 @@ See `crates/gui/ui/style.css` (`:root` and `[data-theme="light"]`), which projec
 
 ## Changelog
 
-- 2026-11-26: brand package v6 (icon, tray, brand green #65E51C with recomputed contrast); Import menu replaces Files + Folder; Fetch lyrics replaces Find & embed all; "Not found" replaces NA; list and inspector toolbars cut to three labelled actions plus an overflow menu; type roles tightened (Sora labels, Source Sans text, Plex Mono numbers); fixed the full-width menus and the macOS web panel sitting one title bar too high; bot checks moved into a hidden browser with an in-app notice; Use selection in the Web tab.
+- 2026-11-26: brand package v6 (icon, tray, brand green #65E51C with recomputed contrast); Import menu replaces Files + Folder; Fetch replaces Find & embed all; the engine lamp and live progress share one status line in the footer (the duplicate counts are gone); "Not found" replaces NA; list and inspector toolbars cut to three labelled actions plus an overflow menu; type roles tightened (Sora labels, Source Sans text, Plex Mono numbers); fixed the full-width menus and the macOS web panel sitting one title bar too high; bot checks moved into a hidden browser with an in-app notice; Use selection in the Web tab.
 
 - 2026-10-14: renamed to Lyrixearch; macOS icon; queue rows with cover art; player; resizable inspector; footer status bar; mobile web view. Layout fix: middle grid row is minmax(0, 1fr) so panels scroll. Re-checked: no new colors, radii or shadows introduced; all new controls have hover, active, focus and disabled states, labels, and 24px or larger targets.
 - 2026-10-14: contrast fixes (see slop audit).
