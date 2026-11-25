@@ -536,6 +536,29 @@ html.mac .topbar { padding-left: 86px; }
 .status { cursor: pointer; border-radius: var(--radius); }
 .status:hover .silk { color: var(--accent-text); }
 
+/* ───────── header: progress line along its lower edge, Activity and Sources ───────── */
+.topbar { position: relative; }
+.topline { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; pointer-events: none; opacity: 0; transition: opacity 200ms ease-out; }
+.topline.on { opacity: 1; }
+.topline i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 300ms ease-out; }
+.topline.scan i { background: var(--blue-text, var(--accent)); }
+.topline.indeterminate i { width: 30% !important; animation: topline 1.2s ease-in-out infinite; }
+@keyframes topline { from { margin-left: -30%; } to { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .topline.indeterminate i { animation: none; width: 100% !important; opacity: 0.5; } }
+#btn-activity .led { box-shadow: none; }
+#btn-activity .led:not(.searching) { background: var(--led-off); }
+#sources-pop { width: 300px; padding: 6px 0; }
+.pop-head { padding: 6px 14px; font-weight: 600; }
+.pop-sub { font-weight: 400; color: var(--faint); font-size: var(--text-xs); margin-left: 6px; }
+.src-toggles { list-style: none; margin: 0; padding: 0 6px; max-height: 360px; overflow: auto; }
+.src-toggles li { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: var(--radius); }
+.src-toggles li:hover { background: var(--surface-2); }
+.src-toggles .nm { flex: 1; min-width: 0; }
+.src-toggles .nm small { display: block; color: var(--faint); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.led.reading { background: var(--led-off); animation: lamp 1.6s var(--ease-in-out, ease-in-out) infinite; box-shadow: none; }
+.act-aside { color: var(--amber-text); }
+.act-scan .grp-bar { margin-top: 8px; height: 6px; border-radius: 3px; }
+
 /* ───────── Details tab: cards with a match gauge, lyrics timeline and search trail ───────── */
 .dx { display: flex; flex-direction: column; gap: var(--s3); }
 .dx-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: var(--s3) var(--s4); }

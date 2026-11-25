@@ -22,7 +22,7 @@
     lyricsSize: 14, mobile: true, tbMode: 'both',
     kind: 'auto', replace: false, pop: null, fileScope: 'sel',
     layout: 'comfortable', sort: 'artist', collapsed: new Set(), items: [], offs: [0],
-    pane: 'overview', act: null,
+    pane: 'overview', act: null, scan: null, aside: {}, searchSince: new Map(),
   };
 
   const fmtTime = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -93,12 +93,14 @@
       case 'searching': return t.provider ? `searching · ${pname(t.provider)}` : 'searching';
       case 'found': return `found · ${pname(t.provider)}${t.synced ? ' · synced' : ''}`;
       case 'written': return t.provider ? `embedded · ${pname(t.provider)}` : 'embedded';
+      case 'reading': return 'reading tags';
       case 'notfound': return 'no match';
       case 'error': return 'failed';
       default: return t.has_lyrics ? 'embedded' : 'missing';
     }
   }
   function stateTone(t) {
+    if (t.status === 'reading') return '';
     const l = lampClass(t);
     if (l === 'has' || l === 'written') return 'lit';
     if (l === 'found') return 'blue';
@@ -110,7 +112,7 @@
   // ───────────────────────── track queue ─────────────────────────
   const predicates = {
     all: () => true,
-    missing: (t) => !t.has_lyrics,
+    missing: (t) => !t.has_lyrics && t.status !== 'reading',
     has: (t) => t.has_lyrics,
     found: (t) => t.status === 'found',
     notfound: (t) => t.status === 'notfound',
@@ -135,7 +137,7 @@
 
   // Tracks the big button searches: everything in the list below it, minus the ones that already
   // have lyrics unless replacing is on.
-  const runIds = () => S.view.filter((t) => S.replace || !t.has_lyrics).map((t) => t.id);
+  const runIds = () => S.view.filter((t) => t.status !== 'reading' && (S.replace || !t.has_lyrics)).map((t) => t.id);
 
   function computeView() {
     const q = S.query.trim().toLowerCase();
@@ -362,30 +364,48 @@
   }
 
   // top strip and status bar: engine lamp, progress with words and a bar
+  // the tracks Fetch works on: the selection when there is one, else everything listed
+  const fetchIds = () => {
+    if (S.sel.size) return [...S.sel].filter((id) => S.tracks.get(id)?.status !== 'reading');
+    return runIds();
+  };
+
   function renderTop() {
     const pr = S.progress;
     const running = !!pr?.running;
     const run = $('#btn-run');
-    const ids = running ? [] : runIds();
+    const ids = running ? [] : fetchIds();
     run.classList.toggle('stop', running);
     run.disabled = !running && ids.length === 0;
     run.querySelector('[data-icon]').innerHTML = icon(running ? 'stop' : 'bolt');
-    $('#btn-run-label').textContent = running ? 'Stop' : 'Fetch';
+    $('#btn-run-label').textContent = running ? 'Stop' : S.sel.size ? 'Fetch selected' : 'Fetch';
     const cnt = $('#btn-run-count');
     cnt.hidden = running || ids.length === 0;
     cnt.textContent = ids.length;
-    run.title = running ? 'Stop searching' : ids.length ? `Search ${ids.length} listed track${ids.length === 1 ? '' : 's'} and embed the lyrics found${S.replace ? ', replacing existing lyrics' : ''}` : 'Every listed track has lyrics';
+    run.title = running ? 'Stop searching' : S.sel.size ? `Search the ${ids.length} selected track${ids.length === 1 ? '' : 's'} and embed the lyrics found` : ids.length ? `Search ${ids.length} listed track${ids.length === 1 ? '' : 's'} and embed the lyrics found${S.replace ? ', replacing existing lyrics' : ''}` : 'Every listed track has lyrics';
+    // the line under the header: fetch progress, or tag reading, from any view
+    const scanning = !!S.scan?.running;
+    const line = $('#topline');
+    line.classList.toggle('on', running || scanning);
+    line.classList.toggle('scan', !running && scanning);
+    line.classList.toggle('indeterminate', running && !pr.total);
+    const frac = running ? (pr.total ? pr.done / pr.total : 0) : scanning ? (S.scan.total ? S.scan.done / S.scan.total : 0) : 0;
+    $('#topline-fill').style.width = `${Math.round(frac * 1000) / 10}%`;
+    $('#activity-led').className = `led ${running || scanning ? 'searching' : ''}`;
     // status line: Ready, or the live search, or the result for a few seconds after it ends
     const recentlyDone = pr && !running && Date.now() - S.progressAt < 9000;
-    $('#engine-led').className = `led ${running ? 'searching' : 'on'}`;
-    $('#engine-text').textContent = running ? 'Searching' : recentlyDone ? 'Done' : 'Ready';
-    $('#meter').hidden = !running;
+    $('#engine-led').className = `led ${running || scanning ? 'searching' : 'on'}`;
+    $('#engine-text').textContent = running ? 'Searching' : scanning ? 'Reading tags' : recentlyDone ? 'Done' : 'Ready';
+    $('#meter').hidden = !running && !scanning;
     let detail = '';
-    if (running) {
+    if (!running && scanning) {
+      $('#meter-fill').style.setProperty('--p', S.scan.total ? S.scan.done / S.scan.total : 0);
+      detail = `${S.scan.done.toLocaleString()} of ${S.scan.total.toLocaleString()} files`;
+    } else if (running) {
       $('#meter-fill').style.setProperty('--p', pr.total ? pr.done / pr.total : 0);
       detail = `${pr.done}/${pr.total}${S.current ? ' · ' + S.current : ''} · ${pr.found} found`;
     } else if (recentlyDone) {
-      detail = `${pr.found} found${pr.written ? ' · ' + pr.written + ' embedded' : ''} · ${pr.missed} not found`;
+      detail = `${pr.found} found${pr.written ? ' · ' + pr.written + ' embedded' : ''} · ${pr.missed} no match`;
       setTimeout(renderTop, 9100);
     }
     $('#progress-text').textContent = detail;
@@ -537,7 +557,7 @@
     const cards = [];
     cards.push(`<section class="dx-card ov-top">${ring(has / all.length, `${Math.round((has / all.length) * 100)}%`, 'with lyrics')}
       <div class="ov-sum"><b>${has} of ${all.length} tracks</b><span>have lyrics in the file</span>
-      <div class="tiles">${tile(has, 'Embedded', 'has', 'has')}${tile(all.length - has, 'Missing', 'missing', 'missing')}${count('found') ? tile(count('found'), 'Found', 'found', 'found') : ''}${count('notfound') ? tile(count('notfound'), 'No match', 'notfound', 'notfound') : ''}${count('error') ? tile(count('error'), 'Failed', 'error', 'error') : ''}</div></div></section>`);
+      <div class="tiles">${tile(has, 'Embedded', 'has', 'has')}${tile(all.filter((t) => !t.has_lyrics && t.status !== 'reading').length, 'Missing', 'missing', 'missing')}${count('reading') ? tile(count('reading'), 'Reading tags', 'reading', null) : ''}${count('found') ? tile(count('found'), 'Found', 'found', 'found') : ''}${count('notfound') ? tile(count('notfound'), 'No match', 'notfound', 'notfound') : ''}${count('error') ? tile(count('error'), 'Failed', 'error', 'error') : ''}</div></div></section>`);
     // albums that need the most work
     const albums = new Map();
     for (const t of all) {
@@ -566,8 +586,15 @@
     }).join('')}</ul><div class="act-legend"><span><i class="f"></i>Found</span><span><i class="m"></i>No match</span><span><i class="t"></i>Timed out</span><span><i class="x"></i>Failed</span></div>`;
   }
 
+  function scanHtml() {
+    const sc = S.scan;
+    if (!sc?.running) return '';
+    return `<section class="dx-card act-scan"><h3>Reading tags <span>${sc.done.toLocaleString()} of ${sc.total.toLocaleString()} files</span></h3><p class="dx-note">The files are listed already; names, durations and existing lyrics are filled in as they are read. Fetch waits for them.</p><span class="grp-bar"><i style="width:${sc.total ? Math.round((sc.done / sc.total) * 100) : 0}%"></i></span></section>`;
+  }
+
   function activityHtml() {
     const a = S.act;
+    if (!a && S.scan?.running) return scanHtml();
     if (!a) return '<div class="pane-empty"><h3>No fetch yet</h3><p>Press Fetch, or search a selection, and this shows the progress, what each source is doing, and every result as it lands.</p></div>';
     const p = S.progress || { done: 0, total: 0, found: 0, written: 0, missed: 0, running: false };
     const now = a.end || Date.now();
@@ -578,16 +605,17 @@
     const searching = all.filter((t) => t.status === 'searching');
     const queued = all.filter((t) => t.status === 'queued').length;
     const failed = a.recent.filter((r) => r.status === 'error').length;
-    const cards = [];
+    const cards = [scanHtml()];
     cards.push(`<section class="dx-card ov-top">${ring(p.total ? p.done / p.total : 0, `${p.done}/${p.total}`, p.running ? 'searched' : 'done', p.running ? 'var(--accent)' : 'var(--ok)')}
       <div class="ov-sum"><b>${p.running ? 'Fetching lyrics' : 'Fetch finished'}</b>
       <span>${fmtDur(elapsed)} elapsed · ${Math.round(rate)} tracks a minute${p.running && left ? ` · about ${fmtDur(left)} left` : ''}</span>
       <div class="tiles">${tile(p.found, 'Found', 'found', null)}${tile(p.written, 'Embedded', 'has', null)}${tile(p.missed, 'No match', 'notfound', null)}${tile(failed, 'Failed', 'error', null)}</div>
       ${p.running ? '<button class="btn sm" data-act-stop>Stop</button>' : ''}</div></section>`);
     if (p.running) {
-      cards.push(`<section class="dx-card"><h3>Searching now <span>${searching.length} at once · ${queued} waiting</span></h3>${searching.length ? `<ul class="act-now">${searching.slice(0, 12).map((t) => `<li data-go="${t.id}"><i class="led searching" aria-hidden="true"></i><span class="act-t"><b>${esc(t.title)}</b> ${esc(t.artist)}</span><span class="pill">${esc(pname(t.provider) || 'starting')}</span></li>`).join('')}</ul>` : '<p class="dx-note">Starting…</p>'}</section>`);
+      cards.push(`<section class="dx-card"><h3>Searching now <span>${searching.length} at once · ${queued} waiting</span></h3>${searching.length ? `<ul class="act-now">${searching.slice(0, 12).map((t) => `<li data-go="${t.id}"><i class="led searching" aria-hidden="true"></i><span class="act-t"><b>${esc(t.title)}</b> ${esc(t.artist)}</span><span class="pill">${esc(pname(t.provider) || 'starting')}${S.searchSince.get(t.id) ? ` · ${Math.max(0, Math.round((Date.now() - S.searchSince.get(t.id).at) / 1000))} s` : ''}</span></li>`).join('')}</ul>` : '<p class="dx-note">Starting…</p>'}</section>`);
     }
-    cards.push(`<section class="dx-card"><h3>Sources</h3>${sourcesHtml()}</section>`);
+    const aside = Object.entries(S.aside || {});
+    cards.push(`<section class="dx-card"><h3>Sources</h3>${sourcesHtml()}${aside.length ? `<ul class="act-now">${aside.map(([id, secs]) => `<li><i class="led queued" aria-hidden="true"></i><span class="act-t"><b>${esc(pname(id))}</b> left out for now</span><span class="act-num act-aside">${secs >= 60 ? Math.round(secs / 60) + ' min' : secs + ' s'} left</span></li>`).join('')}</ul>` : ''}</section>`);
     if (a.recent.length) {
       const word = { found: 'Found', written: 'Embedded', notfound: 'No match', error: 'Failed' };
       const lamp = { found: 'found', written: 'has', notfound: 'notfound', error: 'error' };
@@ -947,12 +975,13 @@
   function autoFetch(ids) {
     const todo = ids.filter((id) => S.replace || !S.tracks.get(id)?.has_lyrics);
     if (!todo.length) return;
-    if (S.progress?.running) { autoQueue.push(...todo); return; }
+    // tags still being read, or a fetch running: they go when that is done
+    if (S.progress?.running || S.scan?.running || todo.some((id) => S.tracks.get(id)?.status === 'reading')) { autoQueue.push(...todo); return; }
     startSearch(todo, true, S.replace);
   }
   function drainAutoQueue() {
-    if (!autoQueue.length || S.progress?.running) return;
-    const ids = autoQueue.filter((id) => S.tracks.has(id));
+    if (!autoQueue.length || S.progress?.running || S.scan?.running) return;
+    const ids = autoQueue.filter((id) => S.tracks.has(id) && (S.replace || !S.tracks.get(id).has_lyrics));
     autoQueue = [];
     if (ids.length) startSearch(ids, true, S.replace);
   }
@@ -960,13 +989,13 @@
   /** Add files and folders to the list; returns the ids of the tracks that were new. */
   async function addPaths(paths) {
     if (!paths.length) return [];
-    toast(`Scanning ${paths.length === 1 ? paths[0].split(/[\\/]/).pop() : paths.length + ' items'}, including subfolders`);
+    toast(`Looking for music in ${paths.length === 1 ? paths[0].split(/[\\/]/).pop() : paths.length + ' items'}`);
     try {
       const known = new Set(S.tracks.keys());
       const res = await invoke('add_paths', { paths });
       setTracks(res.tracks);
       const fresh = res.tracks.filter((t) => !known.has(t.id)).map((t) => t.id);
-      toast(fresh.length > 0 ? `Added ${fresh.length} track${fresh.length === 1 ? '' : 's'}. ${res.stats.missing} missing lyrics.` : 'No new audio files found', fresh.length > 0 ? 'good' : '');
+      toast(fresh.length > 0 ? `Added ${fresh.length.toLocaleString()} track${fresh.length === 1 ? '' : 's'}; reading their tags` : 'No new audio files found', fresh.length > 0 ? 'good' : '');
       if (S.settings?.config.auto_fetch && fresh.length) autoFetch(fresh);
       return fresh;
     } catch (e) { toast(errText(e), 'bad', 7000); return []; }
@@ -982,6 +1011,12 @@
 
   async function runAll() {
     if (S.progress?.running) { invoke('cancel_search'); return; }
+    if (S.sel.size) {
+      const ids = fetchIds();
+      if (!ids.length) { toast('The selected tracks are still being read'); return; }
+      startSearch(ids, true);
+      return;
+    }
     if (!runIds().length) { toast(S.view.length ? 'Every track listed already has lyrics. Turn on Replace existing in Files to search them anyway.' : 'No tracks in the list'); return; }
     const where = S.settings?.config.write_tags === false ? 'saved as sidecar files' : 'embedded in the audio files';
     const ok = await confirmBox('Fetch lyrics?', () => {
@@ -1286,7 +1321,11 @@
       if (e.target.closest('[data-pane-go]')) { setPane('activity'); return; }
       if (e.target.closest('[data-act-stop]')) invoke('cancel_search');
     });
-    setInterval(() => { if (S.progress?.running && S.pane === 'activity' && S.active == null) renderPane(); }, 1000);
+    setInterval(async () => {
+      if (S.pane !== 'activity' || S.active != null) return;
+      if (S.progress?.running) { try { S.aside = await invoke('source_states'); } catch { S.aside = {}; } }
+      if (S.progress?.running || S.scan?.running) renderPane();
+    }, 1500);
     // the status line opens the activity
     const status = $('#status');
     status.tabIndex = 0;
@@ -1316,6 +1355,32 @@
     $('#btn-run').title = `Search every listed track and embed the lyrics found (${shortcut}Enter)`;
     $('#btn-settings').title = `Settings (${shortcut},)`;
     $('#btn-import').title = `Add tracks (${shortcut}O files, ${shortcut}Shift+O folder)`;
+
+    // header: Activity opens the pane; Sources switches sources on and off
+    $('#btn-activity').onclick = () => { S.sel.clear(); setActive(null); setPane(S.progress?.running || S.scan?.running || S.act ? 'activity' : 'overview'); renderRows(); renderSelbar(); renderTop(); };
+    const paintSources = () => {
+      const cat = S.settings?.providers || [];
+      const on = S.settings?.config.providers || [];
+      const order = [...on.map((id) => cat.find((p) => p.id === id)).filter(Boolean), ...cat.filter((p) => !on.includes(p.id))];
+      $('#src-toggles').innerHTML = order.map((p) => `<li><span class="nm">${esc(p.name)}<small>${esc(p.note)}</small></span><span class="switch"><input type="checkbox" data-src="${esc(p.id)}" aria-label="Use ${esc(p.name)}" ${on.includes(p.id) ? 'checked' : ''}><i></i></span></li>`).join('');
+    };
+    $('#btn-sources').onclick = (e) => { paintSources(); openFloating($('#sources-pop'), e.currentTarget, 'input'); };
+    $('#src-toggles').addEventListener('change', async (e) => {
+      const id = e.target.dataset.src;
+      if (!id) return;
+      const cfg = { ...S.settings.config };
+      cfg.providers = e.target.checked ? [...cfg.providers.filter((p) => p !== id), id] : cfg.providers.filter((p) => p !== id);
+      try { S.settings = await invoke('set_settings', { config: cfg }); } catch (err) { toast(errText(err), 'bad'); e.target.checked = !e.target.checked; }
+    });
+    $('#src-more').onclick = () => { closeFloating(); invoke('open_settings').catch(() => {}); };
+    $('#sources-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { const a = S.pop?.anchor; closeFloating(); a?.focus(); } });
+    $('#sel-clear').onclick = async () => {
+      if (!S.tracks.size) return;
+      const ok = await confirmBox('Clear the list?', `Takes all ${S.tracks.size.toLocaleString()} tracks out of the list. The files and their lyrics are not touched.`, 'Clear list');
+      if (!ok) return;
+      setTracks((await invoke('clear_tracks')).tracks);
+    };
+    $('#cx-fetch').onclick = () => { closeFloating(); const ids = [...S.sel].filter((id) => S.tracks.get(id)?.status !== 'reading'); if (ids.length) startSearch(ids, true); };
 
     // row context menu
     $('#table').addEventListener('contextmenu', openContextMenu);
@@ -1496,7 +1561,11 @@
       if (t.status === 'notfound') logEvent(`Not found: ${t.name}${t.note ? '\n' + t.note : ''}`);
       if (t.status === 'error') logEvent(`Error: ${t.name}${t.note ? '\n' + t.note : ''}`);
       if (t.status === 'written') logEvent(`Wrote lyrics for ${t.name}`);
-      if (t.status === 'searching') S.current = `${t.title}${t.provider ? ' via ' + pname(t.provider) : ''}`;
+      if (t.status === 'searching') {
+        S.current = `${t.title}${t.provider ? ' via ' + pname(t.provider) : ''}`;
+        const was = S.searchSince.get(t.id);
+        if (!was || was.provider !== t.provider) S.searchSince.set(t.id, { provider: t.provider, at: Date.now() });
+      } else S.searchSince.delete(t.id);
       computeView();
       recount();
       buildItems();
@@ -1504,6 +1573,19 @@
       renderSelbar();
       renderTop();
       if (S.active === t.id) { clearTimeout(wire._t); wire._t = setTimeout(() => setActive(t.id), 120); }
+    });
+    // tags read in the background after an import, a batch at a time
+    let batchFrame = 0;
+    T.event.listen('tracks', (e) => {
+      for (const t of e.payload) S.tracks.set(t.id, t);
+      if (!batchFrame) batchFrame = requestAnimationFrame(() => { batchFrame = 0; refresh(); if (S.active != null && e.payload.some((t) => t.id === S.active)) setActive(S.active); });
+    });
+    T.event.listen('scan-progress', (e) => {
+      const was = !!S.scan?.running;
+      S.scan = e.payload;
+      renderTop();
+      renderPane();
+      if (was && !e.payload.running) { setTimeout(drainAutoQueue, 300); toast(`Read the tags of ${e.payload.total.toLocaleString()} file${e.payload.total === 1 ? '' : 's'}`, 'good'); }
     });
     T.event.listen('progress', (e) => {
       const p = e.payload;

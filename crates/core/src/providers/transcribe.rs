@@ -83,18 +83,26 @@ impl Provider for Transcribe {
 
     async fn fetch(&self, http: &reqwest::Client, q: &Query, cfg: &Config) -> Result<Option<Lyrics>> {
         let Some(path) = q.source_path.as_deref().map(PathBuf::from).filter(|p| p.is_file()) else { return Ok(None) };
+        // the artist and title as vocabulary (names are what Whisper gets wrong most); not for
+        // placeholder names, which would only mislead it
+        let hint = crate::clean::unsuitable(&q.artist, &q.title).is_none().then(|| format!("{} - {}", q.artist.trim(), q.title.trim()));
         let segments = match cfg.transcribe_engine.as_str() {
-            "groq" => cloud(http, &path, cfg, "https://api.groq.com/openai/v1/audio/transcriptions", "whisper-large-v3-turbo").await?,
-            "openai" => cloud(http, &path, cfg, "https://api.openai.com/v1/audio/transcriptions", "whisper-1").await?,
+            "groq" => cloud(http, &path, cfg, hint.as_deref(), "https://api.groq.com/openai/v1/audio/transcriptions", "whisper-large-v3-turbo").await?,
+            "openai" => cloud(http, &path, cfg, hint.as_deref(), "https://api.openai.com/v1/audio/transcriptions", "whisper-1").await?,
             _ => {
                 let cfg = cfg.clone();
-                tokio::task::spawn_blocking(move || local(&path, &cfg)).await.context("transcription stopped")??
+                tokio::task::spawn_blocking(move || local(&path, &cfg, hint.as_deref())).await.context("transcription stopped")??
             }
         };
-        let rows: Vec<Segment> = segments.into_iter().filter(|s| !noise(&s.text)).collect();
+        let rows = drop_loops(segments.into_iter().filter(|s| !noise(&s.text)).collect());
         if rows.iter().map(|s| s.text.split_whitespace().count()).sum::<usize>() < 8 {
             // an instrumental, or nothing intelligible
             return Ok(None);
+        }
+        // a rough transcription is enough to name the song: then the real lyrics are used, timed
+        // by lining them up with the transcription
+        if let Some(found) = identify(http, q, cfg, &rows).await {
+            return Ok(Some(found));
         }
         let plain = rows.iter().map(|s| s.text.clone()).collect::<Vec<_>>().join("\n");
         let synced = rows
@@ -127,6 +135,155 @@ struct Segment {
     ms: u64,
     text: String,
     words: Vec<(u64, String)>,
+}
+
+/// Whisper sometimes repeats one line over and over (a "loop"); a chorus repeats too, but not
+/// this often in a row. Keep at most three of the same line in a row.
+fn drop_loops(rows: Vec<Segment>) -> Vec<Segment> {
+    let mut out: Vec<Segment> = Vec::new();
+    let mut run = 0;
+    for r in rows {
+        if out.last().is_some_and(|l| norm(&l.text) == norm(&r.text)) {
+            run += 1;
+            if run >= 3 {
+                continue;
+            }
+        } else {
+            run = 0;
+        }
+        out.push(r);
+    }
+    out
+}
+
+fn norm(s: &str) -> String {
+    s.chars().flat_map(char::to_lowercase).filter(|c| c.is_alphanumeric()).collect()
+}
+
+/// Name the song from its words: Genius also searches lyrics, so the most distinctive transcribed
+/// lines are looked up there. When a song comes up that matches the track's tags, its real lyrics
+/// are used, timed against the transcription. When the track has no usable names (an "Unknown
+/// Artist - Track 07"), the song the lines point to is taken, but marked for review.
+async fn identify(http: &reqwest::Client, q: &Query, cfg: &Config, rows: &[Segment]) -> Option<Lyrics> {
+    let named = crate::clean::unsuitable(&q.artist, &q.title).is_none();
+    let mut lines: Vec<&str> = rows.iter().map(|s| s.text.as_str()).filter(|t| t.split_whitespace().count() >= 4).collect();
+    lines.sort_by_key(|t| std::cmp::Reverse(t.len()));
+    let mut seen = std::collections::HashSet::new();
+    lines.retain(|t| seen.insert(norm(t)));
+    // (artist, title, url) -> how many lines pointed at it
+    let mut votes: Vec<((String, String, String), usize)> = Vec::new();
+    for line in lines.into_iter().take(3) {
+        let Ok(hits) = super::genius::search_text(http, line).await else { continue };
+        for hit in hits.into_iter().take(3) {
+            match votes.iter_mut().find(|(h, _)| h.2 == hit.2) {
+                Some((_, n)) => *n += 1,
+                None => votes.push((hit, 1)),
+            }
+        }
+    }
+    let pick = if named {
+        // must be the tagged song: names are more reliable than a transcription
+        votes.into_iter().filter(|((a, t, _), _)| crate::matching::score(q, a, t, None).accepted(cfg.min_score)).max_by_key(|(_, n)| *n)
+    } else {
+        // no names to check against: at least two lines must agree
+        votes.into_iter().filter(|(_, n)| *n >= 2).max_by_key(|(_, n)| *n)
+    }?;
+    let ((artist, title, url), _) = pick;
+    let found = super::genius::lyrics_at(http, &url, &artist, &title, cfg).await.ok()??;
+    let plain = found.embed_text()?;
+    let synced = align(&plain, rows);
+    Some(Lyrics {
+        plain: Some(plain),
+        synced,
+        source: "ai_transcribe".into(),
+        url: Some(url),
+        matched_artist: artist,
+        matched_title: title,
+        score: if named { 0.9 } else { 0.6 },
+        review: !named,
+    })
+}
+
+/// Time the real lyrics with the transcription: the words of both are lined up (an edit-distance
+/// alignment), each lyric line starts where its first matched word was heard, and lines without a
+/// match get a time between their neighbours. `None` when too little matched to trust the timing.
+fn align(lyrics: &str, rows: &[Segment]) -> Option<String> {
+    // heard words with times; within a phrase without word times, spread evenly
+    let mut heard: Vec<(String, u64)> = Vec::new();
+    for (i, r) in rows.iter().enumerate() {
+        if !r.words.is_empty() {
+            heard.extend(r.words.iter().map(|(ms, w)| (norm(w), *ms)));
+            continue;
+        }
+        let words: Vec<&str> = r.text.split_whitespace().collect();
+        let end = rows.get(i + 1).map(|n| n.ms).unwrap_or(r.ms + 3000).max(r.ms + 1);
+        let step = (end - r.ms) / words.len().max(1) as u64;
+        heard.extend(words.iter().enumerate().map(|(k, w)| (norm(w), r.ms + step * k as u64)));
+    }
+    heard.retain(|(w, _)| !w.is_empty());
+    let lines: Vec<&str> = lyrics.lines().collect();
+    let mut sung: Vec<(String, usize)> = Vec::new();
+    for (li, l) in lines.iter().enumerate() {
+        sung.extend(l.split_whitespace().map(|w| (norm(w), li)).filter(|(w, _)| !w.is_empty()));
+    }
+    if heard.is_empty() || sung.is_empty() {
+        return None;
+    }
+    // edit-distance table over words, then walk back for the matched pairs
+    let (n, m) = (sung.len(), heard.len());
+    let mut d = vec![vec![0u32; m + 1]; n + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i as u32;
+    }
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j as u32;
+    }
+    for i in 1..=n {
+        for j in 1..=m {
+            let same = u32::from(sung[i - 1].0 != heard[j - 1].0);
+            d[i][j] = (d[i - 1][j - 1] + same).min(d[i - 1][j] + 1).min(d[i][j - 1] + 1);
+        }
+    }
+    let mut line_time: Vec<Option<u64>> = vec![None; lines.len()];
+    let (mut i, mut j) = (n, m);
+    while i > 0 && j > 0 {
+        if sung[i - 1].0 == heard[j - 1].0 && d[i][j] == d[i - 1][j - 1] {
+            let li = sung[i - 1].1;
+            // walking backwards: the last assignment is the line's earliest matched word
+            line_time[li] = Some(heard[j - 1].1);
+            i -= 1;
+            j -= 1;
+        } else if d[i][j] == d[i - 1][j] + 1 {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
+    }
+    let text_lines: Vec<usize> = (0..lines.len()).filter(|&k| !lines[k].trim().is_empty()).collect();
+    let matched = text_lines.iter().filter(|&&k| line_time[k].is_some()).count();
+    if text_lines.is_empty() || matched * 2 < text_lines.len() {
+        return None;
+    }
+    // fill the gaps between known lines, keep times in order
+    let known: Vec<(usize, u64)> = text_lines.iter().filter_map(|&k| line_time[k].map(|t| (k, t))).collect();
+    let mut out = Vec::new();
+    let mut last = 0u64;
+    for (k, line) in lines.iter().enumerate() {
+        let t = line_time[k].unwrap_or_else(|| {
+            let before = known.iter().rev().find(|(kk, _)| *kk < k);
+            let after = known.iter().find(|(kk, _)| *kk > k);
+            match (before, after) {
+                (Some(&(bk, bt)), Some(&(ak, at))) => bt + (at.saturating_sub(bt)) * (k - bk) as u64 / (ak - bk) as u64,
+                (Some(&(_, bt)), None) => bt + 2000,
+                (None, Some(&(_, at))) => at.saturating_sub(2000),
+                (None, None) => 0,
+            }
+        });
+        let t = t.max(last);
+        last = t;
+        out.push(format!("{}{}", stamp(t, '[', ']'), line.trim()));
+    }
+    Some(out.join("\n"))
 }
 
 fn stamp(ms: u64, open: char, close: char) -> String {
@@ -162,7 +319,9 @@ fn convert(input: &Path, output: &Path, args: &[&str]) -> Result<()> {
 
 /// whisper.cpp: WAV in, JSON with one entry per phrase out. Phrases are split at word boundaries
 /// near 50 characters, which reads like lyric lines.
-fn local(path: &Path, cfg: &Config) -> Result<Vec<Segment>> {
+/// Settings from the research on Whisper and songs: beam search, no conditioning on the previous
+/// text (the main cause of loops), non-speech tokens suppressed, and the names as a prompt.
+fn local(path: &Path, cfg: &Config, hint: Option<&str>) -> Result<Vec<Segment>> {
     let bin = whisper_bin(cfg).ok_or_else(|| anyhow!("whisper.cpp (whisper-cli) is not installed: Settings → Transcription"))?;
     let model = model_path(cfg).ok_or_else(|| anyhow!("no Whisper model yet: download one in Settings → Transcription"))?;
     let wav = temp_file("wav");
@@ -176,8 +335,16 @@ fn local(path: &Path, cfg: &Config) -> Result<Vec<Segment>> {
     let result = (|| {
         convert(path, &wav, &["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"])?;
         let lang = cfg.transcribe_language.as_deref().filter(|l| !l.trim().is_empty()).unwrap_or("auto");
-        let out =
-            Command::new(&bin).arg("-m").arg(&model).arg("-f").arg(&wav).args(["-l", lang, "-oj", "-np", "-ml", "50", "-sow", "-of"]).arg(&base).output()?;
+        let out = Command::new(&bin)
+            .arg("-m")
+            .arg(&model)
+            .arg("-f")
+            .arg(&wav)
+            .args(["-l", lang, "-oj", "-np", "-ml", "50", "-sow", "-bs", "5", "-mc", "0", "-sns"])
+            .args(hint.map(|h| vec!["--prompt".to_string(), h.to_string()]).unwrap_or_default())
+            .arg("-of")
+            .arg(&base)
+            .output()?;
         if !out.status.success() {
             bail!("whisper.cpp failed: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").trim());
         }
@@ -200,7 +367,7 @@ fn local(path: &Path, cfg: &Config) -> Result<Vec<Segment>> {
 }
 
 /// An OpenAI-style transcription API (Groq, OpenAI) with the person's key; phrases and words timed.
-async fn cloud(http: &reqwest::Client, path: &Path, cfg: &Config, url: &str, model: &str) -> Result<Vec<Segment>> {
+async fn cloud(http: &reqwest::Client, path: &Path, cfg: &Config, hint: Option<&str>, url: &str, model: &str) -> Result<Vec<Segment>> {
     let key = cfg
         .transcribe_api_key
         .as_deref()
@@ -234,6 +401,9 @@ async fn cloud(http: &reqwest::Client, path: &Path, cfg: &Config, url: &str, mod
         .text("timestamp_granularities[]", "word");
     if let Some(lang) = cfg.transcribe_language.as_deref().map(str::trim).filter(|l| !l.is_empty() && *l != "auto") {
         form = form.text("language", lang.to_string());
+    }
+    if let Some(h) = hint {
+        form = form.text("prompt", h.to_string());
     }
     let resp = http.post(url).bearer_auth(key).multipart(form).timeout(Duration::from_secs(300)).send().await?;
     let status = resp.status();
@@ -277,6 +447,27 @@ fn segments_from_api(body: &Value) -> Vec<Segment> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn real_lyrics_are_timed_by_the_transcription() {
+        // heard with mistakes ("singing" for "signing"); the real lines get the heard times
+        let rows = vec![
+            Segment { ms: 1000, text: "Walking down the empty road tonight".into(), words: Vec::new() },
+            Segment { ms: 5000, text: "every light is fading out of sight".into(), words: Vec::new() },
+            Segment { ms: 9000, text: "I keep on singing just to feel alive".into(), words: Vec::new() },
+        ];
+        let lyrics = "Walking down the empty road tonight\nEvery light is fading out of sight\n\nI keep on signing just to feel alive";
+        let lrc = align(lyrics, &rows).unwrap();
+        assert_eq!(lrc, "[00:01.00]Walking down the empty road tonight\n[00:05.00]Every light is fading out of sight\n[00:07.00]\n[00:09.00]I keep on signing just to feel alive");
+        assert!(align("Completely different words here\nNothing alike at all", &rows).is_none(), "too little matched to trust");
+    }
+
+    #[test]
+    fn loops_are_cut_but_a_chorus_stays() {
+        let seg = |t: &str| Segment { ms: 0, text: t.into(), words: Vec::new() };
+        let rows = vec![seg("Hold on"), seg("Hold on"), seg("Hold on"), seg("Hold on"), seg("Hold on"), seg("We will survive")];
+        assert_eq!(drop_loops(rows).iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["Hold on", "Hold on", "Hold on", "We will survive"]);
+    }
 
     #[test]
     fn api_segments_get_their_words() {

@@ -132,6 +132,35 @@ impl Provider for Genius {
     }
 }
 
+/// Songs whose lyrics contain this text (Genius's search also searches lyrics), as
+/// `(artist, title, page url)`, best first. Used to name a transcribed song.
+pub(super) async fn search_text(http: &reqwest::Client, text: &str) -> Result<Vec<(String, String, String)>> {
+    let url = format!("https://genius.com/api/search/multi?per_page=5&q={}", urlencoding::encode(text));
+    let body = super::web::get_text(http, &url, &[]).await.context("genius search")?;
+    if body.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let resp: Value = serde_json::from_str(&body).context("genius search: bad json")?;
+    Ok(resp
+        .pointer("/response/sections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|s| s.get("hits").and_then(Value::as_array).cloned().unwrap_or_default())
+        .filter(|h| h.get("type").and_then(Value::as_str) == Some("song"))
+        .filter_map(|h| {
+            let r = h.get("result")?;
+            Some((r.pointer("/primary_artist/name")?.as_str()?.to_string(), r.get("title")?.as_str()?.to_string(), r.get("url")?.as_str()?.to_string()))
+        })
+        .collect())
+}
+
+/// The lyrics on a Genius song page, checked against the page's own artist and title.
+pub(super) async fn lyrics_at(http: &reqwest::Client, url: &str, artist: &str, title: &str, cfg: &Config) -> Result<Option<Lyrics>> {
+    let q = Query { artist: artist.to_string(), title: title.to_string(), ..Default::default() };
+    read_page(http, url, &q, cfg, false).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

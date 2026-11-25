@@ -106,7 +106,7 @@ type ArtistTitle = (String, String);
 
 /// Sources that only look at files beside the track, so they still run for a track whose names
 /// are placeholders.
-const NAME_FREE_SOURCES: &[&str] = &["local_files"];
+const NAME_FREE_SOURCES: &[&str] = &["local_files", "ai_transcribe"];
 
 /// Caps how many requests one source gets at once and spaces their starts.
 struct Limiter {
@@ -236,7 +236,8 @@ impl Engine {
         }
     }
 
-    fn penalty_remaining(&self, id: &str) -> Option<Duration> {
+    /// How long a source is still left out (failing, asked to slow down, or its check skipped).
+    pub fn penalty_remaining(&self, id: &str) -> Option<Duration> {
         let mut map = self.penalties.lock().unwrap();
         let p = map.entry(id.to_string()).or_default();
         match p.disabled_until {

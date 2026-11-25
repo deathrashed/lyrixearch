@@ -42,12 +42,21 @@ fn tag_lyrics(tag: &Tag) -> Option<&str> {
 }
 
 pub fn read_track(path: &Path) -> Result<Track> {
-    let tagged = lofty::read_from_path(path).with_context(|| format!("reading tags from {}", path.display()))?;
+    read_track_with_lyrics(path).map(|(t, _)| t)
+}
+
+/// [`read_track`] plus the embedded lyrics text, from one read of the file. Only what matching needs
+/// is taken: artist, title, album, album artist, track number, duration, and the lyrics; cover
+/// pictures are skipped (they can be megabytes per file and are loaded on their own when shown).
+pub fn read_track_with_lyrics(path: &Path) -> Result<(Track, Option<String>)> {
+    let opts = lofty::config::ParseOptions::new().read_cover_art(false);
+    let tagged = lofty::probe::Probe::open(path).and_then(|p| p.options(opts).read()).with_context(|| format!("reading tags from {}", path.display()))?;
     let duration = tagged.properties().duration().as_secs() as u32;
     let format = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
 
     let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
     let track_number = tag.and_then(|t| t.track());
+    let lyrics = tag.and_then(tag_lyrics).map(str::to_string);
     let (mut artist, mut title, album, album_artist, has_lyrics) = match tag {
         Some(t) => (
             t.artist().map(|s| s.to_string()).unwrap_or_default(),
@@ -73,20 +82,23 @@ pub fn read_track(path: &Path) -> Result<Track> {
         }
     }
 
-    Ok(Track {
-        path: path.to_path_buf(),
-        query: Query {
-            artist,
-            title,
-            album,
-            album_artist,
-            track_number,
-            duration_secs: (duration > 0).then_some(duration),
-            source_path: Some(path.to_string_lossy().into_owned()),
+    Ok((
+        Track {
+            path: path.to_path_buf(),
+            query: Query {
+                artist,
+                title,
+                album,
+                album_artist,
+                track_number,
+                duration_secs: (duration > 0).then_some(duration),
+                source_path: Some(path.to_string_lossy().into_owned()),
+            },
+            has_lyrics,
+            format,
         },
-        has_lyrics,
-        format,
-    })
+        lyrics,
+    ))
 }
 
 /// Embed `text` as the track's lyrics. Optionally restores the modified time afterwards.

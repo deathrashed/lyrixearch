@@ -26,6 +26,8 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, We
 #[derive(Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Status {
+    /// Listed from its file name; the tags are still being read.
+    Reading,
     Idle,
     Queued,
     Searching,
@@ -191,43 +193,125 @@ fn list_tracks(state: State<'_, AppState>) -> TrackList {
     list(&state.0.lock().unwrap(), 0)
 }
 
-/// Scan files/folders (recursively) and add the audio files to the working list.
+/// A row from the file name alone ("01 - Artist - Title.flac"), shown at once while the tags are read.
+fn placeholder(path: &std::path::Path) -> Track {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    // drop a leading track number ("01 - ", "01. ", "1_"), but not a title such as "1984"
+    let digits = stem.chars().take_while(char::is_ascii_digit).count();
+    let after = &stem[digits..];
+    let name =
+        if (1..=3).contains(&digits) && after.starts_with([' ', '.', '-', '_']) { after.trim_start_matches([' ', '.', '-', '_']) } else { stem.as_str() };
+    let name = if name.trim().is_empty() { stem.as_str() } else { name };
+    let (artist, title) = lyrixearch_core::providers::web::split_artist_title(name).unwrap_or_else(|| (String::new(), name.trim().to_string()));
+    Track {
+        path: path.to_path_buf(),
+        query: lyrixearch_core::Query { artist, title, source_path: Some(path.to_string_lossy().into_owned()), ..Default::default() },
+        has_lyrics: false,
+        format: path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default(),
+    }
+}
+
+/// Add files and folders (every subfolder) to the list. The files appear at once, named from their
+/// file names; their tags are then read in the background, on several threads, in batches that
+/// update the rows (`tracks` events) and report progress (`scan-progress`). A file whose tags
+/// cannot be read stays in the list under its file name.
 #[tauri::command]
 async fn add_paths(app: AppHandle, state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<TrackList> {
     let known: HashSet<PathBuf> = state.0.lock().unwrap().entries.iter().map(|e| e.track.path.clone()).collect();
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    // Tag reading touches every file: keep it off the async threads.
-    let (loaded, skipped) = tauri::async_runtime::spawn_blocking(move || {
-        let mut loaded = Vec::new();
-        let mut skipped = 0usize;
-        for f in scan::collect_audio(&paths, true).into_iter().filter(|f| !known.contains(f)) {
-            match tags::read_track(&f) {
-                Ok(t) => {
-                    let embedded = if t.has_lyrics { tags::read_lyrics(&t.path) } else { None };
-                    loaded.push((t, embedded));
-                }
-                Err(_) => skipped += 1,
-            }
+    let files: Vec<PathBuf> =
+        tauri::async_runtime::spawn_blocking(move || scan::collect_audio(&paths, true).into_iter().filter(|f| !known.contains(f)).collect())
+            .await
+            .map_err(err)?;
+    let (out, jobs) = {
+        let mut inner = state.0.lock().unwrap();
+        let mut jobs = Vec::with_capacity(files.len());
+        for f in files {
+            let id = inner.next_id;
+            inner.next_id += 1;
+            inner.entries.push(Entry {
+                id,
+                track: placeholder(&f),
+                status: Status::Reading,
+                provider: None,
+                found: None,
+                embedded: None,
+                note: None,
+                trail: Vec::new(),
+            });
+            jobs.push((id, f));
         }
-        (loaded, skipped)
-    })
-    .await
-    .map_err(err)?;
+        (list(&inner, 0), jobs)
+    };
+    if !jobs.is_empty() {
+        tauri::async_runtime::spawn(read_tags(app, jobs));
+    }
+    Ok(out)
+}
 
-    let mut inner = state.0.lock().unwrap();
+/// The background half of [`add_paths`].
+async fn read_tags(app: AppHandle, jobs: Vec<(u64, PathBuf)>) {
+    let total = jobs.len();
     let pending = pending::load().unwrap_or_else(|e| {
         let _ = app.emit("operation-warning", format!("Could not load pending lyrics: {e:#}"));
         pending::Pending::new()
     });
-    for (track, embedded) in loaded {
-        let id = inner.next_id;
-        inner.next_id += 1;
-        let found = pending.get(&util::pending_key(&track.path)).cloned();
-        let provider = found.as_ref().map(|lyrics| lyrics.source.clone());
-        let status = if found.is_some() { Status::Found } else { Status::Idle };
-        inner.entries.push(Entry { id, track, status, provider, found, embedded, note: None, trail: Vec::new() });
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8);
+    let mut done = 0usize;
+    let _ = app.emit("scan-progress", serde_json::json!({ "done": 0, "total": total, "running": true }));
+    for chunk in jobs.chunks(96) {
+        let chunk = chunk.to_vec();
+        let read = tauri::async_runtime::spawn_blocking(move || {
+            let per = chunk.len().div_ceil(threads);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .chunks(per.max(1))
+                    .map(|part| {
+                        scope.spawn(move || {
+                            part.iter()
+                                .map(|(id, path)| {
+                                    // one read of the file: names, duration and the lyrics text
+                                    let read = tags::read_track_with_lyrics(path);
+                                    (*id, read.ok())
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect::<Vec<_>>()
+            })
+        })
+        .await
+        .unwrap_or_default();
+        done += read.len();
+        let state = app.state::<AppState>();
+        let updated: Vec<TrackDto> = {
+            let mut inner = state.0.lock().unwrap();
+            read.into_iter()
+                .filter_map(|(id, result)| {
+                    let e = inner.entries.iter_mut().find(|e| e.id == id)?;
+                    match result {
+                        Some((track, embedded)) => {
+                            e.found = pending.get(&util::pending_key(&track.path)).cloned();
+                            e.provider = e.found.as_ref().map(|l| l.source.clone());
+                            e.status = if e.found.is_some() { Status::Found } else { Status::Idle };
+                            e.track = track;
+                            e.embedded = embedded;
+                        }
+                        None => {
+                            e.status = Status::Idle;
+                            e.note = Some("The tags could not be read; named from the file name".into());
+                        }
+                    }
+                    Some(dto(e))
+                })
+                .collect()
+        };
+        let _ = app.emit("tracks", &updated);
+        let _ = app.emit("scan-progress", serde_json::json!({ "done": done, "total": total, "running": done < total }));
     }
-    Ok(list(&inner, skipped))
+    let _ = app.emit("scan-progress", serde_json::json!({ "done": total, "total": total, "running": false }));
+    let _ = app.emit("stats", stats(&app.state::<AppState>().0.lock().unwrap()));
 }
 
 #[tauri::command]
@@ -274,7 +358,8 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
         let mut work = Vec::new();
         for e in inner.entries.iter_mut() {
             let picked = want.as_ref().is_none_or(|w| w.contains(&e.id));
-            let busy = matches!(e.status, Status::Queued | Status::Searching);
+            // rows still being read have names from the file name only: they wait
+            let busy = matches!(e.status, Status::Queued | Status::Searching | Status::Reading);
             // `replace: Some(false)` skips tracks that already have lyrics even when they were named explicitly.
             let allowed = match replace {
                 Some(r) => r || !e.track.has_lyrics,
@@ -1161,6 +1246,16 @@ async fn transcribe_download_model(app: AppHandle) -> CmdResult<String> {
 
 // ───────────────────────────── accounts (Settings → Accounts) ─────────────────────────────
 
+/// Sources that are left out for now, with the seconds left (Activity → Sources).
+#[tauri::command]
+fn source_states(state: State<'_, AppState>) -> serde_json::Value {
+    let inner = state.0.lock().unwrap();
+    let Ok(engine) = &inner.engine else { return serde_json::json!({}) };
+    let out: serde_json::Map<String, serde_json::Value> =
+        inner.cfg.providers.iter().filter_map(|id| engine.penalty_remaining(id).map(|d| (id.clone(), serde_json::json!(d.as_secs())))).collect();
+    serde_json::Value::Object(out)
+}
+
 #[tauri::command]
 fn account_list() -> Vec<serde_json::Value> {
     accounts::list()
@@ -1733,6 +1828,7 @@ fn main() {
             diagnose,
             reveal_config,
             account_list,
+            source_states,
             transcribe_status,
             transcribe_download_model,
             account_status,

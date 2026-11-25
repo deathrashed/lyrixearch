@@ -29,10 +29,15 @@
             </div>
           </div>
         </div>
+        <div class="pop-wrap">
+          <button class="btn" id="btn-sources" aria-haspopup="dialog" aria-expanded="false" aria-controls="sources-pop" title="Switch sources on and off"><span data-icon="database"></span><span class="lbl">Sources</span><span data-icon="down"></span></button>
+        </div>
         <button class="btn cta" id="btn-run" title="Search every listed track and embed the lyrics found"><span data-icon="bolt"></span><span class="lbl" id="btn-run-label">Fetch</span><b class="count" id="btn-run-count" hidden></b></button>
+        <button class="btn" id="btn-activity" title="What is happening: reading, fetching, every source"><i class="led" id="activity-led" aria-hidden="true"></i><span class="lbl">Activity</span></button>
         <button class="btn icon ghost" id="btn-theme" title="Switch light / dark" aria-label="Switch light or dark theme"><span data-icon="moon"></span></button>
         <button class="btn icon ghost" id="btn-settings" title="Settings" aria-label="Settings"><span data-icon="sliders"></span></button>
       </div>
+      <div class="topline" id="topline" aria-hidden="true"><i id="topline-fill"></i></div>
     </header>
 
     <main class="main">
@@ -46,6 +51,7 @@
           <button role="tab" data-filter="error" aria-selected="false" title="The search could not finish; try again later"><i class="led error" aria-hidden="true"></i><span>Failed</span><b id="c-error">0</b></button>
         </div>
         <span class="spacer-flex"></span>
+        <button class="btn sm ghost" id="sel-clear" title="Take every track out of the list (the files are not touched)"><span data-icon="x"></span><span class="t">Clear list</span></button>
         <button class="btn sm" id="btn-view" aria-haspopup="menu" aria-expanded="false" aria-controls="view-pop" title="Layout and sort order"><span data-icon="rows" id="view-icon"></span><span class="t">View</span><span data-icon="down"></span></button>
       </div>
       <div class="listbar" id="listbar" data-mode="both" role="toolbar" aria-label="Track list actions">
@@ -202,7 +208,8 @@
     <button role="menuitem" class="danger" id="mn-remove"><span data-icon="trash"></span><span>Delete lyrics from files…</span></button>
   </div>
   <div class="popover floating menu" id="ctx-pop" role="menu" aria-label="Track actions" hidden>
-    <button role="menuitem" id="cx-search"><span data-icon="search"></span><span>Search</span></button>
+    <button role="menuitem" id="cx-fetch"><span data-icon="bolt"></span><span>Fetch and embed</span></button>
+    <button role="menuitem" id="cx-search"><span data-icon="search"></span><span>Search only</span></button>
     <button role="menuitem" id="cx-embed"><span data-icon="download"></span><span>Embed found lyrics</span></button>
     <button role="menuitem" id="cx-files"><span data-icon="fileText"></span><span>LRC and TXT files…</span></button>
     <hr />
@@ -212,6 +219,11 @@
     <hr />
     <button role="menuitem" id="cx-drop"><span data-icon="x"></span><span>Remove from list</span></button>
     <button role="menuitem" class="danger" id="cx-remove"><span data-icon="trash"></span><span id="cx-remove-label">Delete lyrics from file…</span></button>
+  </div>
+  <div class="popover floating" id="sources-pop" role="dialog" aria-label="Sources" hidden>
+    <div class="pop-head">Sources <span class="pop-sub">tried from the top</span></div>
+    <ul class="src-toggles" id="src-toggles"></ul>
+    <div class="pop-actions"><button class="btn sm ghost" id="src-more">Order and accounts…</button></div>
   </div>
   <div class="popover floating menu" id="view-pop" role="menu" aria-label="Layout and sort order" hidden>
     <p class="menu-head">Layout</p>
