@@ -31,6 +31,30 @@ pub fn save(pending: &Pending) -> Result<()> {
     save_to(&p, pending)
 }
 
+/// Change the saved set in place: load, apply `f`, save, all under an exclusive file lock, so the
+/// GUI and the terminal UI running at the same time never overwrite each other's results.
+pub fn update<R>(f: impl FnOnce(&mut Pending) -> R) -> Result<R> {
+    let p = path().context("no config directory on this platform")?;
+    update_at(&p, f)
+}
+
+pub fn update_at<R>(p: &Path, f: impl FnOnce(&mut Pending) -> R) -> Result<R> {
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    let mut lock_name = p.file_name().unwrap_or_default().to_os_string();
+    lock_name.push(".lock");
+    let lock_path = p.with_file_name(lock_name);
+    let lock =
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock_path).with_context(|| format!("opening {}", lock_path.display()))?;
+    // released when `lock` is dropped at the end of this function
+    lock.lock().with_context(|| format!("locking {}", lock_path.display()))?;
+    let mut map = load_from(p)?;
+    let out = f(&mut map);
+    save_to(p, &map)?;
+    Ok(out)
+}
+
 pub fn load_from(p: &Path) -> Result<Pending> {
     let text = match std::fs::read_to_string(p) {
         Ok(t) => t,
@@ -76,9 +100,48 @@ mod tests {
         assert_eq!(back.len(), 1, "the entry for a file that no longer exists is dropped");
         assert_eq!(back[&audio].plain.as_deref(), Some("words"));
 
+        // update() changes the set in place and returns the closure's value
+        let n = update_at(&store, |m| {
+            m.insert(audio.clone(), Lyrics { plain: Some("newer".into()), ..Default::default() });
+            m.len()
+        })
+        .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(load_from(&store).unwrap()[&audio].plain.as_deref(), Some("newer"));
+
         save_to(&store, &Pending::new()).unwrap();
         assert!(!store.exists());
         assert!(load_from(&store).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod concurrency {
+    use super::*;
+
+    /// Many writers at once, each adding its own entry: none may be lost.
+    #[test]
+    fn parallel_updates_keep_every_entry() {
+        let dir = std::env::temp_dir().join(format!("lyrixearch-pending-par-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = dir.join("pending.json");
+        let audios: Vec<PathBuf> = (0..16).map(|i| dir.join(format!("t{i}.mp3"))).collect();
+        for a in &audios {
+            std::fs::write(a, b"x").unwrap();
+        }
+        std::thread::scope(|s| {
+            for a in &audios {
+                let store = &store;
+                s.spawn(move || {
+                    update_at(store, |m| {
+                        m.insert(a.clone(), Lyrics { plain: Some("w".into()), ..Default::default() });
+                    })
+                    .unwrap()
+                });
+            }
+        });
+        assert_eq!(load_from(&store).unwrap().len(), audios.len());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

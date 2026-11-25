@@ -9,7 +9,10 @@ use std::path::Path;
 pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().context("path has no file name")?.to_string_lossy();
-    let tmp = dir.join(format!(".{name}.tmp-{}", std::process::id()));
+    // process id plus a counter: unique across processes and across threads of this one
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{name}.tmp-{}-{seq}", std::process::id()));
     let result = (|| -> std::io::Result<()> {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(bytes)?;
