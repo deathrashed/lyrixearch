@@ -158,7 +158,7 @@ The header counts files, with lyrics, left to search and NA; while searching, th
 | `bandcamp` | lyrics the artist published on the track page |
 | `lyrics_ovh` | exact-name API |
 
-Per track, sources are tried in order with a per-source timeout; sources that keep failing are skipped for a while. Ten tracks are searched at once by default. Sources that show a captcha or browser check (DuckDuckGo, and any page behind Cloudflare) open a verification window in the desktop app; the cookies from it are reused for the rest of the search. Not yet included: AZLyrics, Letras and Uta-Net (all three sit behind bot checks), and Musixmatch (needs a private signed token).
+Per track, sources are tried in order, each with one time budget for the track; sources that keep failing, or that ask to slow down, are skipped for a while. A title that finds nothing is retried without trailing brackets, and a "Various Artists" track with its album artist. Tracks whose names are placeholders ("Track 01", "Unknown Artist") are only matched against lyrics files next to them. With a Last.fm API key set (`lastfm_api_key`), misspelled artist and title names are corrected before searching. Ten tracks are searched at once by default. Sources that show a captcha or browser check (DuckDuckGo, and any page behind Cloudflare) open a verification window in the desktop app; the cookies from it are reused for the rest of the search. Not yet included: AZLyrics, Letras and Uta-Net (all three sit behind bot checks), and Musixmatch (needs a private signed token).
 
 ## <img src="https://api.iconify.design/mdi:puzzle-outline.svg?color=%235fe27f" height="22" alt=""> Plugins
 
@@ -166,7 +166,7 @@ A plugin is any script that speaks a small JSON protocol over stdin/stdout. See 
 
 ## <img src="https://api.iconify.design/mdi:tag-text-outline.svg?color=%235fe27f" height="22" alt=""> Functionality
 
-ID3v2 `USLT`, MP4 `©lyr`, Vorbis/FLAC `LYRICS`, ASF `WM/Lyrics` and APE, through [`lofty`](https://crates.io/crates/lofty). File modification times are preserved by default. Options: sidecar `.lrc`/`.txt`, strip `[Chorus]`-style headers, leading blank line. Synced text goes to a sidecar; the tag holds the plain text. Settings live in a TOML file (`lyrixearch config path`) and are all editable in the app.
+Plain lyrics go to ID3v2 `USLT`, MP4 `©lyr`, Vorbis/FLAC `LYRICS`, ASF `WM/Lyrics` and APE; synced lyrics also go to ID3v2 `SYLT` (MP3) and `SYNCEDLYRICS` (FLAC, Ogg, Opus), through [`lofty`](https://crates.io/crates/lofty). Every other tag field and frame is kept as it was, and file modification times are preserved by default. Options: sidecar `.lrc`/`.txt` (an existing sidecar is only replaced with **Replace existing** on), synced lyrics only, title clean-up rules, strip `[Chorus]`-style headers, leading blank line. Found lyrics that have not been embedded yet are kept between runs. Settings live in a TOML file (`lyrixearch config path`) and are all editable in the app.
 
 ## <img src="https://api.iconify.design/mdi:file-tree.svg?color=%235fe27f" height="22" alt=""> Structure
 
