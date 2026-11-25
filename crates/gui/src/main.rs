@@ -570,7 +570,14 @@ struct Settings {
     plugins_dir: String,
     config_path: String,
     startup_notice: Option<String>,
+    /// False where web pages cannot be shown inside the main window (see [`EMBEDDED_BROWSER`]).
+    embedded_browser: bool,
 }
+
+/// Whether a web page can be shown inside the main window. On Linux, Tauri packs child webviews into
+/// the window's GTK box and ignores their position and size, so an embedded page would take half the
+/// window and squeeze the UI; pages open in the person's own browser there instead.
+const EMBEDDED_BROWSER: bool = !cfg!(target_os = "linux");
 
 fn settings_of(cfg: &Config) -> Settings {
     Settings {
@@ -580,6 +587,7 @@ fn settings_of(cfg: &Config) -> Settings {
         plugins_dir: Config::plugins_dir().display().to_string(),
         config_path: Config::path().map(|p| p.display().to_string()).unwrap_or_default(),
         startup_notice: None,
+        embedded_browser: EMBEDDED_BROWSER,
     }
 }
 
@@ -674,6 +682,9 @@ fn parse_url(u: &str) -> CmdResult<tauri::Url> {
 /// Show (creating on first use) the embedded browser at `rect`, optionally navigating.
 #[tauri::command]
 fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>, rect: Rect) -> CmdResult<()> {
+    if !EMBEDDED_BROWSER {
+        return Err("Pages cannot be shown inside the window on this system; use Browser to open them in your browser".into());
+    }
     let window = app.get_window("main").context("main window").map_err(err)?;
     let pos = LogicalPosition::new(rect.x, rect.y);
     let size = LogicalSize::new(rect.w.max(1.0), rect.h.max(1.0));

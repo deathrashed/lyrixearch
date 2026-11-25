@@ -471,7 +471,9 @@
   const EXTERNAL_ENGINES = new Set(['google_ai']);
 
   const slotRect = () => { const r = $('#webslot').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
-  const browserWanted = () => S.tab === 'web' && !!activeTrack() && !S.modalOpen && !S.popOpen && !S.dragging;
+  // false on Linux, where pages open in the person's browser instead of inside the window
+  const canEmbed = () => S.settings?.embedded_browser !== false;
+  const browserWanted = () => canEmbed() && S.tab === 'web' && !!activeTrack() && !S.modalOpen && !S.popOpen && !S.dragging;
   let browserOpen = false;
   let lastRect = '';
   let rectRaf = 0;
@@ -513,6 +515,11 @@
     const engine = $('#web-engine').value;
     const url = urlFor($('#web-query').value);
     if (!url) return;
+    if (!canEmbed()) {
+      S.webUrl = url;
+      invoke('open_external', { url }).then(() => toast('Opened in your browser', 'good')).catch((e) => toast(errText(e), 'bad'));
+      return;
+    }
     if (EXTERNAL_ENGINES.has(engine) && !/^https?:\/\//i.test($('#web-query').value.trim())) {
       invoke('open_external', { url }).then(() => toast('Opened in your browser, where you are signed in to Google', 'good')).catch((e) => toast(errText(e), 'bad'));
       return;
@@ -1177,6 +1184,11 @@
       S.replace = !!s.config.overwrite;
       renderTop();
       $('#web-engine').innerHTML = engineOptions(s.engines, s.config.search_engine);
+      if (!canEmbed()) {
+        // no in-window page here: keep the search box and the Browser button, drop the page controls
+        ['#web-back', '#web-forward', '#web-reload', '#web-zoom-out', '#web-zoom-in', '#web-mobile'].forEach((sel) => { $(sel).hidden = true; });
+        $('#webslot').innerHTML = '<span>Search opens the results in your browser.</span>';
+      }
       renderLibraries();
     });
 
