@@ -1629,17 +1629,22 @@ fn main() {
         check_provider: None,
     }));
 
-    tauri::Builder::default()
-        // Linux and Windows: a second launch (a file dropped on the launcher, "Open with") hands its
-        // files to the running app instead of opening another window. macOS does this itself.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // Linux and Windows: a second launch (a file dropped on the launcher, "Open with") hands its
+    // files to the running app instead of opening another window. macOS does this itself. The
+    // built-in tests run their own copy next to one that is open, so they leave this out.
+    let testing = std::env::var_os("LYRIXEARCH_SELFTEST").is_some() || std::env::var_os("LYRIXEARCH_CHECKTEST").is_some();
+    if !testing {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let paths: Vec<String> = argv.iter().skip(1).filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists()).cloned().collect();
             if !paths.is_empty() {
                 app.state::<AppState>().0.lock().unwrap().pending_open.extend(paths);
                 let _ = app.emit("open-paths", ());
             }
             background::show_main(app);
-        }))
+        }));
+    }
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())

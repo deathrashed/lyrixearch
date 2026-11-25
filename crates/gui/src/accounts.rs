@@ -47,6 +47,23 @@ const PRELUDE: &str = r#"(() => {
   window.__lxReady = true;
   window.__lxRes = {};
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Spotify's and Apple's web players refuse to start where the browser has no DRM (WebKitGTK on
+  // Linux has no Widevine), and then never sign in or fetch anything. Lyrics need no protected
+  // content, so where the real check fails a stand-in answers it: the player starts, and anything
+  // it might try to play simply fails. Browsers with working DRM keep their own answer.
+  (() => {
+    const real = navigator.requestMediaKeySystemAccess && navigator.requestMediaKeySystemAccess.bind(navigator);
+    const standIn = (keySystem, configs) => ({
+      keySystem,
+      getConfiguration: () => (configs && configs[0]) || {},
+      createMediaKeys: async () => ({ createSession: () => ({ addEventListener() {}, removeEventListener() {}, generateRequest: async () => { throw new Error('no DRM here'); }, close: async () => {}, closed: new Promise(() => {}), keyStatuses: new Map(), sessionId: '' }), setServerCertificate: async () => true }),
+    });
+    const ask = async (keySystem, configs) => {
+      if (real) { try { return await real(keySystem, configs); } catch (e) { /* no DRM: answered below */ } }
+      return standIn(keySystem, configs);
+    };
+    try { Object.defineProperty(Navigator.prototype, 'requestMediaKeySystemAccess', { configurable: true, value: function (k, c) { return ask(k, c); } }); } catch (e) { /* left as it is */ }
+  })();
   let OPS = {};
   __OPS__
   window.__lxCall = (id, op, args) => {
