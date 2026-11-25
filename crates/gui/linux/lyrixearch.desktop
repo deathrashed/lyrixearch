@@ -4,7 +4,7 @@ Categories={{categories}}
 Comment={{comment}}
 {{/if}}
 Exec={{exec}} %F
-StartupWMClass=dev.lyrixearch.desktop
+StartupWMClass=lyrixearch-gui
 Icon={{icon}}
 Name={{name}}
 Terminal=false

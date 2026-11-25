@@ -3,14 +3,16 @@
 # so Linux desktops show its icon and name. Installed packages (.deb/.rpm) do this themselves.
 #
 # Under Wayland a window cannot set its own icon: the desktop finds it through the .desktop file
-# named after the window's app id (the bundle identifier, dev.lyrixearch.desktop).
+# named after the window's app id. GTK sends the program name, lyrixearch-gui (checked with
+# WAYLAND_DEBUG=client: xdg_toplevel.set_app_id("lyrixearch-gui")).
 #
 #   scripts/linux-desktop-entry.sh            install, pointing at target/debug/lyrixearch-gui
 #   scripts/linux-desktop-entry.sh release    install, pointing at target/release/lyrixearch-gui
 #   scripts/linux-desktop-entry.sh remove     take it out again
 set -euo pipefail
 
-APP_ID="dev.lyrixearch.desktop"
+APP_ID="lyrixearch-gui"
+OLD_ENTRY="dev.lyrixearch.desktop"  # an earlier, wrongly named entry; removed on install
 ICON_NAME="lyrixearch"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 data="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -22,6 +24,8 @@ refresh() {
   command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$data/icons/hicolor" 2>/dev/null || true
   command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true
 }
+
+rm -f "$data/applications/$OLD_ENTRY.desktop"
 
 if [[ "${1:-}" == "remove" ]]; then
   rm -f "$entry"
