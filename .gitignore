@@ -3,3 +3,5 @@
 .DS_Store
 crates/gui/gen/
 lf-work/
+# an application: commit the lockfile so CI and release builds use the tested versions
+!Cargo.lock
