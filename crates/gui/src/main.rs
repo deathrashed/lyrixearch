@@ -716,13 +716,12 @@ fn set_settings(app: AppHandle, state: State<'_, AppState>, config: Config) -> C
 fn install_plugin(app: AppHandle, state: State<'_, AppState>, dir: String) -> CmdResult<Settings> {
     use providers::plugin::ExternalProvider;
     let src = PathBuf::from(&dir);
-    let loaded = ExternalProvider::load(&src).map_err(err)?;
-    let dest = Config::plugins_dir().join(src.file_name().context("bad folder name").map_err(err)?);
-    let mut inner = state.0.lock().unwrap();
-    if let Some(error) = &inner.settings_write_error {
+    if let Some(error) = &state.0.lock().unwrap().settings_write_error {
         return Err(error.clone());
     }
-    util::copy_dir(&src, &dest).map_err(err)?;
+    // copies the folder and runs the plugin's build step (if any) without holding the state lock
+    let loaded = ExternalProvider::install(&src, &Config::plugins_dir()).map_err(err)?;
+    let mut inner = state.0.lock().unwrap();
     let id = loaded.manifest().id.clone();
     let mut cfg = inner.cfg.clone();
     if !cfg.providers.contains(&id) {

@@ -19,6 +19,16 @@ honoured; `%APPDATA%\lyrixearch\plugins` on Windows; `lyrixearch plugins path` p
 A plugin is only used when its `id` is in the `providers` list (Settings → Sources, `plugins
 enable`, or `lyrixearch config set providers a,b,c`). Enabling adds it last. Order matters: the first source that returns lyrics wins.
 
+## Plugins in this repository
+
+| Folder | Source | Needs |
+| --- | --- | --- |
+| `plugins/metal-archives` | Metal Archives, searched song by song (the lookup from metallum-nim, in Rust) | Rust to build it once, `curl` |
+| `plugins/metallum` | Metal Archives through the separate `metallum` CLI | the `metallum` executable |
+
+`lyrixearch plugins install plugins/metal-archives` copies the folder, builds it, and enables it.
+Lookups go one at a time with two seconds between them, out of courtesy to a small community site.
+
 ## Manifest — `plugin.toml`
 
 ```toml
@@ -28,6 +38,8 @@ command = ["python3", "plugin.py"]   # run with the plugin folder as working dir
 timeout_secs = 60                    # optional, default 30
 max_parallel = 1                     # optional, default 2: lookups running at once
 min_gap_ms = 300                     # optional, default 300: pause between starting two lookups
+build = ["cargo", "build", "--release"]  # optional: run once in the installed folder (e.g. to compile)
+build_hint = "needs Rust: https://rustup.rs" # optional: shown when the build program is missing
 ```
 
 ## Protocol v1

@@ -704,15 +704,12 @@ async fn plugins_cmd(action: PluginCmd, cfg: Config) -> Result<ExitCode> {
             }
         }
         PluginCmd::Install { dir: src } => {
-            let manifest = src.join("plugin.toml");
-            if !manifest.is_file() {
-                bail!("{} has no plugin.toml", src.display());
+            if plugin::ExternalProvider::load(&src).is_ok_and(|p| p.manifest().build.is_some()) {
+                eprintln!("building the plugin…");
             }
-            let loaded = plugin::ExternalProvider::load(&src)?;
+            let loaded = plugin::ExternalProvider::install(&src, &dir)?;
             let id = loaded.manifest().id.clone();
-            let dest = dir.join(src.file_name().context("bad plugin folder name")?);
-            lyrixearch_core::util::copy_dir(&src, &dest)?;
-            println!("installed `{id}` to {}", dest.display());
+            println!("installed `{id}` to {}", dir.join(src.file_name().unwrap_or_default()).display());
             // same as the GUI: an installed plugin is used straight away
             set_plugin_enabled(&id, true, cfg)?;
         }

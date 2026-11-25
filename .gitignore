@@ -5,3 +5,8 @@ crates/gui/gen/
 lf-work/
 # an application: commit the lockfile so CI and release builds use the tested versions
 !Cargo.lock
+
+# plugins build in their own folder when installed
+plugins/*/target/
+plugins/*/Cargo.lock
+__pycache__/

@@ -50,6 +50,13 @@ pub struct Manifest {
     /// Minimum pause between starting two lookups, in milliseconds.
     #[serde(default)]
     pub min_gap_ms: Option<u64>,
+    /// Run once in the installed folder when the plugin is installed, e.g. to compile it
+    /// (`["nim", "c", "-d:release", "main.nim"]`). The install fails if it fails.
+    #[serde(default)]
+    pub build: Option<Vec<String>>,
+    /// Shown when the build command's program is missing, e.g. "needs Nim: https://nim-lang.org".
+    #[serde(default)]
+    pub build_hint: Option<String>,
 }
 
 fn default_timeout() -> u64 {
@@ -126,6 +133,39 @@ impl ExternalProvider {
             bail!("{}: `id` and `command` are required", path.display());
         }
         Ok(Self { manifest, dir: dir.to_path_buf() })
+    }
+
+    /// Copy a plugin folder into `plugins_dir`, run its `build` command there if it has one, and
+    /// load the result. A failed build leaves nothing half-installed behind.
+    pub fn install(src: &Path, plugins_dir: &Path) -> Result<Self> {
+        if !src.join("plugin.toml").is_file() {
+            bail!("{} has no plugin.toml", src.display());
+        }
+        let staged = Self::load(src)?;
+        let name = src.file_name().with_context(|| format!("bad plugin folder name: {}", src.display()))?;
+        let dest = plugins_dir.join(name);
+        std::fs::create_dir_all(plugins_dir).with_context(|| format!("creating {}", plugins_dir.display()))?;
+        crate::util::copy_dir(src, &dest)?;
+        if let Some(cmd) = staged.manifest.build.as_ref().filter(|c| !c.is_empty()) {
+            let out = std::process::Command::new(&cmd[0]).args(&cmd[1..]).current_dir(&dest).output();
+            let failure = match out {
+                Ok(o) if o.status.success() => None,
+                Ok(o) => {
+                    let err = String::from_utf8_lossy(&o.stderr);
+                    let tail: Vec<&str> = err.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect();
+                    Some(format!("build failed ({}):\n{}", o.status, tail.join("\n")))
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    Some(format!("`{}` was not found{}", cmd[0], staged.manifest.build_hint.as_deref().map(|h| format!(": {h}")).unwrap_or_default()))
+                }
+                Err(e) => Some(format!("could not run `{}`: {e}", cmd[0])),
+            };
+            if let Some(why) = failure {
+                let _ = std::fs::remove_dir_all(&dest);
+                bail!("installing {}: {why}", staged.manifest.id);
+            }
+        }
+        Self::load(&dest)
     }
 
     pub fn manifest(&self) -> &Manifest {
