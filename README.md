@@ -52,9 +52,9 @@
 </div>
 
 <p align="center">
-  <img src="assets/screenshot-app.png" width="900" alt="The Lyrixearch desktop app: a track list with a coloured lamp per track (four amber 'missing', one green 'embedded'), and the selected track's player and embedded lyrics in the inspector on the right.">
+  <img src="assets/screenshot-app.png" width="900" alt="Lyrixearch on macOS, with segmented status filters and tracks grouped by album on the left, and lyrics coverage and albums missing lyrics in the Overview pane on the right.">
   <br>
-  <sub>The desktop app on macOS. Demo folder of silent test tracks; the selected track's lyrics are demo text.</sub>
+  <sub>The macOS desktop app in Albums view, showing a demo library.</sub>
 </p>
 
 ---
@@ -96,10 +96,10 @@ ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 | | Feature |
 | --- | --- |
 | <img src="https://api.iconify.design/mdi/folder-multiple-plus-outline.svg?color=%235fe27f" height="20" alt=""> | **Add music** by dropping folders or files on the window (or the app icon on macOS), **Files** / **Folder**, or the command line. Every subfolder is scanned. **Library** remembers folders and re-scans them in one go. |
-| <img src="https://api.iconify.design/mdi/playlist-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Tabs filter by **All, Missing, Embedded, Found, NA, Error**; select-all, **Search**, **Embed**, **Files**, **More** and **Drop embedded** act on the selection. |
-| <img src="https://api.iconify.design/mdi/lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Find &amp; embed all**: the green top-bar button searches every track currently listed and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
+| <img src="https://api.iconify.design/mdi/playlist-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Filter by **All, Missing, Embedded, Found, No match, Failed**. Use **View** to sort or switch between **Comfortable**, **Compact** and **Albums**. |
+| <img src="https://api.iconify.design/mdi/lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Fetch**: the green top-bar button searches the listed tracks and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
 | <img src="https://api.iconify.design/mdi/file-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
-| <img src="https://api.iconify.design/mdi/play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Details**: compact player, then **Lyrics**, **Edit**, **Web** and **Info**. Copy, paste from clipboard, edit, reveal, remove. Buttons can show icons, text or both. |
+| <img src="https://api.iconify.design/mdi/play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Right pane**: select a track to see its player and **Lyrics**, **Edit**, **Web** and **Details** tabs. With no track selected, **Overview** shows lyrics coverage and **Activity** shows fetch progress and results. |
 | <img src="https://api.iconify.design/mdi/web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. On Linux all results open in your browser. |
 
 <details>
@@ -110,8 +110,8 @@ ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 | <img src="https://api.iconify.design/mdi/circle.svg?color=%235fe27f" height="12" alt=""> green | lyrics embedded |
 | <img src="https://api.iconify.design/mdi/circle.svg?color=%23e0b040" height="12" alt=""> amber | missing lyrics |
 | <img src="https://api.iconify.design/mdi/circle.svg?color=%2356b4f0" height="12" alt=""> blue | found, not embedded yet |
-| <img src="https://api.iconify.design/mdi/circle.svg?color=%23b88af0" height="12" alt=""> purple | **NA**: no source had them |
-| <img src="https://api.iconify.design/mdi/circle.svg?color=%23f0675a" height="12" alt=""> red | error |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%23b88af0" height="12" alt=""> purple | **No match**: no source had them |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%23f0675a" height="12" alt=""> red | **Failed**: the search could not finish |
 
 </details>
 
