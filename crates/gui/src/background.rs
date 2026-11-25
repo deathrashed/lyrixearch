@@ -95,3 +95,37 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.set_focus();
     }
 }
+
+/// Height of the app's own header, which on macOS also holds the window buttons.
+#[cfg(target_os = "macos")]
+const HEADER: f64 = 52.0;
+
+/// macOS: centre the close / minimise / zoom buttons in the app's 52 pt header (the overlay title bar
+/// would leave them at the top of a 28 pt strip). AppKit resets them on resize, so this runs again then.
+#[cfg(target_os = "macos")]
+pub fn place_window_buttons(window: &tauri::Window) {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+    use objc2_foundation::NSPoint;
+    let Ok(ptr) = window.ns_window() else { return };
+    if ptr.is_null() {
+        return;
+    }
+    let ns: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
+    let buttons: Vec<_> = [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton]
+        .into_iter()
+        .filter_map(|b| ns.standardWindowButton(b))
+        .collect();
+    let [close, mini, _zoom] = buttons.as_slice() else { return };
+    // the buttons sit in the title bar view, inside the title bar container: make the container as tall as the header
+    // SAFETY: called on the main thread (window events and setup), where AppKit's view tree may be read
+    let Some(container) = (unsafe { close.superview().and_then(|v| v.superview()) }) else { return };
+    let mut frame = container.frame();
+    frame.size.height = HEADER;
+    frame.origin.y = ns.frame().size.height - HEADER;
+    container.setFrame(frame);
+    let gap = mini.frame().origin.x - close.frame().origin.x;
+    for (i, b) in buttons.iter().enumerate() {
+        let y = (HEADER - b.frame().size.height) / 2.0;
+        b.setFrameOrigin(NSPoint::new(18.0 + gap * i as f64, y));
+    }
+}

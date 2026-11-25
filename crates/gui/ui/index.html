@@ -8,16 +8,13 @@
 </head>
 <body>
   <div id="app">
-    <header class="topbar">
-      <div class="brand">
-        <img class="mark" src="assets/icon-64.png" alt="" width="32" height="32" />
-        <span class="wordmark">Lyrixearch</span>
-      </div>
+    <header class="topbar" data-tauri-drag-region>
       <label class="search">
         <span data-icon="search"></span>
         <span class="sr-only">Filter tracks</span>
         <input id="filter" type="search" placeholder="Filter tracks" autocomplete="off" spellcheck="false" />
       </label>
+      <div class="drag-fill" data-tauri-drag-region></div>
       <div class="top-actions">
         <button class="btn" id="btn-import" aria-haspopup="menu" aria-expanded="false" aria-controls="import-pop" title="Add tracks to the list"><span data-icon="plus"></span><span class="lbl">Import</span><span class="chev" data-icon="down"></span></button>
         <div class="pop-wrap">
@@ -39,13 +36,17 @@
     </header>
 
     <main class="main">
-      <div class="viewtabs" id="viewtabs" role="tablist" aria-label="Show tracks" aria-controls="table">
-        <button role="tab" data-filter="all" aria-selected="true" title="All tracks"><span class="vt"><span>All</span></span><b id="c-all">0</b></button>
-        <button role="tab" data-filter="missing" aria-selected="false" title="Missing lyrics"><span class="vt"><i class="led missing" aria-hidden="true"></i><span>Missing</span></span><b id="c-missing">0</b></button>
-        <button role="tab" data-filter="has" aria-selected="false" title="Lyrics are in the file"><span class="vt"><i class="led has" aria-hidden="true"></i><span>Embedded</span></span><b id="c-has">0</b></button>
-        <button role="tab" data-filter="found" aria-selected="false" title="Found, not embedded yet"><span class="vt"><i class="led found" aria-hidden="true"></i><span>Found</span></span><b id="c-found">0</b></button>
-        <button role="tab" data-filter="notfound" aria-selected="false" title="No source had lyrics for these"><span class="vt"><i class="led notfound" aria-hidden="true"></i><span>Not found</span></span><b id="c-notfound">0</b></button>
-        <button role="tab" data-filter="error" aria-selected="false" title="The search failed; try again later"><span class="vt"><i class="led error" aria-hidden="true"></i><span>Error</span></span><b id="c-error">0</b></button>
+      <div class="filterbar">
+        <div class="seg viewtabs" id="viewtabs" role="tablist" aria-label="Show tracks" aria-controls="table">
+          <button role="tab" data-filter="all" aria-selected="true" title="All tracks"><span>All</span><b id="c-all">0</b></button>
+          <button role="tab" data-filter="missing" aria-selected="false" title="No lyrics in the file yet"><i class="led missing" aria-hidden="true"></i><span>Missing</span><b id="c-missing">0</b></button>
+          <button role="tab" data-filter="has" aria-selected="false" title="Lyrics are in the file"><i class="led has" aria-hidden="true"></i><span>Embedded</span><b id="c-has">0</b></button>
+          <button role="tab" data-filter="found" aria-selected="false" title="Found, not embedded yet"><i class="led found" aria-hidden="true"></i><span>Found</span><b id="c-found">0</b></button>
+          <button role="tab" data-filter="notfound" aria-selected="false" title="Searched every source; none had these lyrics"><i class="led notfound" aria-hidden="true"></i><span>No match</span><b id="c-notfound">0</b></button>
+          <button role="tab" data-filter="error" aria-selected="false" title="The search could not finish; try again later"><i class="led error" aria-hidden="true"></i><span>Failed</span><b id="c-error">0</b></button>
+        </div>
+        <span class="spacer-flex"></span>
+        <button class="btn sm" id="btn-view" aria-haspopup="menu" aria-expanded="false" aria-controls="view-pop" title="Layout and sort order"><span data-icon="rows" id="view-icon"></span><span class="t">View</span><span data-icon="down"></span></button>
       </div>
       <div class="listbar" id="listbar" data-mode="both" role="toolbar" aria-label="Track list actions">
         <button class="selall" id="sel-all" role="checkbox" aria-checked="false" title="Select every track shown"><i class="box" aria-hidden="true"></i><span id="sel-all-label">Select all</span></button>
@@ -75,10 +76,13 @@
 
     <section class="detail" id="detail" aria-label="Track details">
       <div class="detail-empty" id="detail-empty">
-        <div class="panel-card">
-          <h3>No track selected</h3>
-          <p>Select a track to play it, read or edit its lyrics, or look them up on the web.</p>
+        <div class="pane-head">
+          <div class="seg" id="pane-tabs" role="tablist" aria-label="Library panel">
+            <button role="tab" data-pane="overview" aria-selected="true">Overview</button>
+            <button role="tab" data-pane="activity" aria-selected="false">Activity</button>
+          </div>
         </div>
+        <div class="pane-body dx" id="overview"></div>
       </div>
       <div class="detail-body" id="detail-body" hidden>
         <div class="d-head">
@@ -208,6 +212,19 @@
     <hr />
     <button role="menuitem" id="cx-drop"><span data-icon="x"></span><span>Remove from list</span></button>
     <button role="menuitem" class="danger" id="cx-remove"><span data-icon="trash"></span><span id="cx-remove-label">Delete lyrics from file…</span></button>
+  </div>
+  <div class="popover floating menu" id="view-pop" role="menu" aria-label="Layout and sort order" hidden>
+    <p class="menu-head">Layout</p>
+    <button role="menuitemradio" data-layout="comfortable" aria-checked="true"><span data-icon="rows"></span><span>Comfortable</span></button>
+    <button role="menuitemradio" data-layout="compact" aria-checked="false"><span data-icon="listx"></span><span>Compact</span></button>
+    <button role="menuitemradio" data-layout="albums" aria-checked="false"><span data-icon="library"></span><span>Albums</span></button>
+    <hr />
+    <p class="menu-head">Sort by</p>
+    <button role="menuitemradio" data-sort="artist" aria-checked="true"><span data-icon="user"></span><span>Artist</span></button>
+    <button role="menuitemradio" data-sort="album" aria-checked="false"><span data-icon="library"></span><span>Album</span></button>
+    <button role="menuitemradio" data-sort="title" aria-checked="false"><span data-icon="note"></span><span>Title</span></button>
+    <button role="menuitemradio" data-sort="status" aria-checked="false"><span data-icon="check"></span><span>Status</span></button>
+    <button role="menuitemradio" data-sort="added" aria-checked="false"><span data-icon="plus"></span><span>Recently added</span></button>
   </div>
   <div class="popover floating menu" id="tools-pop" role="menu" aria-label="Tidy the lyrics" hidden>
     <button role="menuitem" data-tool="spacing"><span data-icon="rows"></span><span>Fix double spacing</span></button>

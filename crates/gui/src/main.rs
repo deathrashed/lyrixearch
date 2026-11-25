@@ -95,6 +95,8 @@ struct TrackDto {
     artist: String,
     title: String,
     album: Option<String>,
+    album_artist: Option<String>,
+    track_number: Option<u32>,
     format: String,
     duration: Option<u32>,
     has_lyrics: bool,
@@ -114,6 +116,8 @@ fn dto(e: &Entry) -> TrackDto {
         artist: e.track.query.artist.clone(),
         title: e.track.query.title.clone(),
         album: e.track.query.album.clone(),
+        album_artist: e.track.query.album_artist.clone(),
+        track_number: e.track.query.track_number,
         format: e.track.format.clone(),
         duration: e.track.query.duration_secs,
         has_lyrics: e.track.has_lyrics,
@@ -338,13 +342,24 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                     continue;
                 }
                 Event::Tried { provider, result, millis, .. } => {
+                    // for the Activity panel's per-source chart
+                    let provider_name = provider.clone();
+                    let result_kind = if result == "found" {
+                        "found"
+                    } else if result == "no match" || result.starts_with("only unsynced") {
+                        "miss"
+                    } else if result.contains("timed out") {
+                        "timeout"
+                    } else {
+                        "fail"
+                    };
                     set(&state, id, |e| {
                         if let Some(a) = e.trail.iter_mut().rev().find(|a| a.provider == provider && a.result == "searching") {
                             a.result = result;
                             a.millis = millis;
                         }
                     });
-                    let _ = app2.emit("trail", serde_json::json!({ "id": id }));
+                    let _ = app2.emit("trail", serde_json::json!({ "id": id, "provider": provider_name, "result": result_kind, "millis": millis }));
                     continue;
                 }
                 Event::Challenge { .. } => continue,
@@ -1391,8 +1406,7 @@ const SELFTEST_JS: &str = r#"
     step('fonts');
     out.font = getComputedStyle(document.body).fontFamily.split(',')[0];
     out.layout = { inner: innerWidth, detail: Math.round(document.getElementById('detail').getBoundingClientRect().width), cssVar: getComputedStyle(document.getElementById('app')).getPropertyValue('--detail-w').trim(), saved: (() => { try { return localStorage.getItem('lf-detail-w'); } catch { return 'n/a'; } })() };
-    const mark = document.querySelector('.mark');
-    out.icon = mark.complete && mark.naturalWidth > 0;
+    out.noWordmark = !document.querySelector('.wordmark');
     await sleep(1500);                         // the drop event was delivered by the backend
     const S = window.__lf.state;
     const tracks = [...S.tracks.values()];
@@ -1434,6 +1448,21 @@ const SELFTEST_JS: &str = r#"
     out.player = { loaded: loaded && { state: loaded.state, duration: loaded.duration, error: loaded.error }, playing: playing && { state: playing.state, pos: Math.round(playing.pos * 10) / 10, error: playing.error }, stopped: events[events.length - 1].state };
 
     step('details');
+    // layouts and the library pane, each held for a moment so a watcher can take a screenshot
+    const before = localStorage.getItem('lf-layout');
+    const pick = async (sel) => { document.getElementById('btn-view').click(); await sleep(200); document.querySelector(sel).click(); await sleep(300); };
+    window.__lf.selectId(null);
+    await sleep(400);
+    out.overview = [...document.querySelectorAll('#overview .dx-card h3')].map((h) => h.textContent.trim());
+    step('shot:comfortable'); await sleep(2500);
+    await pick('[data-layout=compact]'); step('shot:compact'); await sleep(2500);
+    await pick('[data-layout=albums]');
+    out.albumHeaders = document.querySelectorAll('#rows .grp').length;
+    step('shot:albums'); await sleep(2500);
+    document.querySelector('#pane-tabs [data-pane=activity]').click(); await sleep(400);
+    out.activity = [...document.querySelectorAll('#overview .dx-card h3')].map((h) => h.textContent.trim());
+    step('shot:activity'); await sleep(2500);
+    await pick(`[data-layout=${before || 'comfortable'}]`);
     // the inspector: Details (search trail, match, lyrics), then Tidy, then the embedded browser
     window.__lf.selectId(plain.id);
     step('selected');
@@ -1645,12 +1674,18 @@ fn main() {
                     eprintln!("lyrixearch: no menu bar drop zone: {e}");
                 }
             }
-            let window = WindowBuilder::new(app, "main")
+            let builder = WindowBuilder::new(app, "main")
                 .title("Lyrixearch")
                 .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))?)?
                 .inner_size(1380.0, 880.0)
-                .min_inner_size(980.0, 620.0)
-                .build()?;
+                .min_inner_size(980.0, 620.0);
+            // macOS: one unified toolbar, as native apps have: the window buttons sit in the app's own
+            // header and there is no separate title strip repeating the name
+            #[cfg(target_os = "macos")]
+            let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+            let window = builder.build()?;
+            #[cfg(target_os = "macos")]
+            background::place_window_buttons(&window);
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
             window.add_child(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
 
@@ -1726,6 +1761,13 @@ fn main() {
                 }
                 if let WindowEvent::ThemeChanged(_) = ev {
                     tray::refresh_theme(&handle);
+                }
+                #[cfg(target_os = "macos")]
+                if matches!(ev, WindowEvent::Resized(_) | WindowEvent::ThemeChanged(_) | WindowEvent::Focused(_)) {
+                    // AppKit puts the window buttons back in its own title strip on these
+                    if let Some(w) = handle.get_window("main") {
+                        background::place_window_buttons(&w);
+                    }
                 }
                 if let WindowEvent::Resized(_) = ev {
                     if let (Some(w), Some(ui)) = (handle.get_window("main"), handle.get_webview("ui")) {

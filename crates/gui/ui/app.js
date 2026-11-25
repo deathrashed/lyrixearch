@@ -4,7 +4,8 @@
   const invoke = (cmd, args) => T.core.invoke(cmd, args || {});
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-  const ROW_H = 72;
+  // row heights per layout; album headers in the Albums layout
+  const HEIGHTS = { comfortable: 56, compact: 32, albums: 32, album: 46 };
   const AUDIO_EXT = ['mp3', 'flac', 'm4a', 'mp4', 'aac', 'ogg', 'oga', 'opus', 'wma', 'wav', 'aif', 'aiff', 'ape', 'wv'];
 
   const { ICONS, icon, esc, errText, store } = window.LX;
@@ -20,6 +21,8 @@
     player: null, seeking: false,
     lyricsSize: 14, mobile: true, tbMode: 'both',
     kind: 'auto', replace: false, pop: null, fileScope: 'sel',
+    layout: 'comfortable', sort: 'artist', collapsed: new Set(), items: [], offs: [0],
+    pane: 'overview', act: null,
   };
 
   const fmtTime = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -89,8 +92,8 @@
       case 'searching': return t.provider ? `searching · ${pname(t.provider)}` : 'searching';
       case 'found': return `found · ${pname(t.provider)}${t.synced ? ' · synced' : ''}`;
       case 'written': return t.provider ? `embedded · ${pname(t.provider)}` : 'embedded';
-      case 'notfound': return 'not found';
-      case 'error': return 'error';
+      case 'notfound': return 'no match';
+      case 'error': return 'failed';
       default: return t.has_lyrics ? 'embedded' : 'missing';
     }
   }
@@ -124,6 +127,9 @@
     const all = [...S.tracks.values()];
     const n = Object.fromEntries(Object.entries(predicates).map(([k, p]) => [k, all.filter(p).length]));
     for (const k of Object.keys(n)) $(`#c-${k}`).textContent = n[k];
+    // Found, No match and Failed only show while they hold tracks (or are the one being shown)
+    for (const k of ['found', 'notfound', 'error']) $(`#viewtabs [data-filter="${k}"]`).hidden = !n[k] && S.filter !== k;
+    renderPane();
   }
 
   // Tracks the big button searches: everything in the list below it, minus the ones that already
@@ -134,7 +140,72 @@
     const q = S.query.trim().toLowerCase();
     const p = predicates[S.filter];
     S.view = [...S.tracks.values()].filter((t) => p(t) && (!q || `${t.artist} ${t.title} ${t.album || ''} ${t.name}`.toLowerCase().includes(q)));
-    S.view.sort((a, b) => a.artist.localeCompare(b.artist) || (a.album || '').localeCompare(b.album || '') || a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const by = (x, y) => (x || '').localeCompare(y || '', undefined, { numeric: true, sensitivity: 'base' });
+    const albumOrder = (a, b) => by(a.album_artist || a.artist, b.album_artist || b.artist) || by(a.album, b.album) || (a.track_number || 0) - (b.track_number || 0) || by(a.name, b.name);
+    const sorts = {
+      artist: (a, b) => by(a.artist, b.artist) || by(a.album, b.album) || (a.track_number || 0) - (b.track_number || 0) || by(a.name, b.name),
+      album: (a, b) => by(a.album, b.album) || albumOrder(a, b),
+      title: (a, b) => by(a.title, b.title) || by(a.artist, b.artist),
+      status: (a, b) => statusRank(a) - statusRank(b) || by(a.artist, b.artist) || by(a.title, b.title),
+      added: (a, b) => b.id - a.id,
+    };
+    // the Albums layout always groups by album artist and album
+    S.view.sort(S.layout === 'albums' ? albumOrder : sorts[S.sort] || sorts.artist);
+  }
+
+  // Status order: what needs attention first
+  function statusRank(t) {
+    return { searching: 0, queued: 1, found: 2, error: 3, notfound: 4 }[t.status] ?? (t.has_lyrics ? 6 : 5);
+  }
+
+  // ───────────────────────── list items: track rows, and album headers in the Albums layout ─────────────────────────
+  const albumKey = (t) => `${(t.album_artist || t.artist || '').toLowerCase()}\u0001${(t.album || '').toLowerCase()}`;
+
+  function buildItems() {
+    const items = [];
+    if (S.layout === 'albums') {
+      let cur = null;
+      for (const t of S.view) {
+        const key = albumKey(t);
+        if (!cur || cur.key !== key) {
+          cur = { kind: 'album', key, album: t.album || 'No album', artist: t.album_artist || t.artist || 'Unknown artist', first: t.id, n: 0, have: 0, tracks: [] };
+          items.push(cur);
+        }
+        cur.n++;
+        if (t.has_lyrics) cur.have++;
+        cur.tracks.push(t.id);
+        if (!S.collapsed.has(key)) items.push({ kind: 'track', t });
+      }
+    } else {
+      for (const t of S.view) items.push({ kind: 'track', t });
+    }
+    const h = S.layout === 'compact' || S.layout === 'albums' ? HEIGHTS.compact : HEIGHTS.comfortable;
+    const offs = [0];
+    for (const it of items) offs.push(offs[offs.length - 1] + (it.kind === 'album' ? HEIGHTS.album : h));
+    S.items = items;
+    S.offs = offs;
+    $('#spacer').style.height = `${offs[offs.length - 1]}px`;
+  }
+
+  /** First item whose bottom is below `y`. */
+  function itemAt(y) {
+    let lo = 0, hi = S.items.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (S.offs[mid + 1] <= y) lo = mid + 1; else hi = mid; }
+    return lo;
+  }
+
+  /** Keep a track's row in view (opening its album when it is folded). */
+  function scrollToTrack(id) {
+    let i = S.items.findIndex((it) => it.kind === 'track' && it.t.id === id);
+    if (i < 0 && S.layout === 'albums') {
+      const t = S.tracks.get(id);
+      if (t) { S.collapsed.delete(albumKey(t)); buildItems(); i = S.items.findIndex((it) => it.kind === 'track' && it.t.id === id); }
+    }
+    if (i < 0) return;
+    const box = $('#table');
+    const top = S.offs[i], bottom = S.offs[i + 1];
+    if (top < box.scrollTop) box.scrollTop = top;
+    else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
   }
 
   function setFilter(f, focus = false) {
@@ -147,44 +218,66 @@
   function refresh() {
     computeView();
     recount();
-    $('#spacer').style.height = `${S.view.length * ROW_H}px`;
+    buildItems();
     $('#empty').hidden = S.tracks.size > 0;
     renderRows();
     renderSelbar();
     renderTop();
   }
 
-  function rowHtml(t) {
-    const cls = ['row', S.sel.has(t.id) ? 'sel' : '', S.active === t.id ? 'active' : ''].join(' ');
-    const cover = S.covers.get(t.id);
-    return `<div class="${cls}" role="option" id="row-${t.id}" aria-selected="${S.sel.has(t.id) || S.active === t.id}" data-id="${t.id}" style="height:${ROW_H}px">
-      <div class="thumb">${cover ? `<img alt="" src="${cover}">` : ''}<i class="led ${lampClass(t)}" aria-hidden="true"></i>${t.duration ? `<span class="dur">${fmtTime(t.duration)}</span>` : ''}</div>
-      <div class="lines">
-        <span class="fname"><span title="${esc(t.path)}">${esc(t.name)}</span></span>
-        <span class="meta1">${icon('user')}<span title="${esc(t.artist)}">${esc(t.artist) || '&nbsp;'}</span></span>
-        <span class="meta2">${icon('note')}<span title="${esc(t.title)}">${esc(t.title)}</span></span>
-      </div>
-      <div class="side">
-        <span class="src ${stateTone(t)}">${esc(stateLabel(t))}</span>
-        <span class="btns">
+  const rowBtns = (t) => `<span class="btns">
           <button data-act="search" title="Search lyrics for this track" aria-label="Search lyrics for ${esc(t.title)}">${icon('search')}</button>
           <button data-act="reveal" title="Show in file browser" aria-label="Show ${esc(t.name)} in the file browser">${icon('reveal')}</button>
-        </span>
-      </div></div>`;
+        </span>`;
+
+  function rowHtml(t) {
+    const cls = ['row', S.layout === 'comfortable' ? 'c' : 'k', S.sel.has(t.id) ? 'sel' : '', S.active === t.id ? 'active' : ''].join(' ');
+    const attrs = `class="${cls}" role="option" id="row-${t.id}" aria-selected="${S.sel.has(t.id) || S.active === t.id}" data-id="${t.id}" title="${esc(t.path)}"`;
+    if (S.layout === 'comfortable') {
+      const cover = S.covers.get(t.id);
+      const sub = [t.artist, t.album].filter(Boolean).map(esc).join(' · ');
+      return `<div ${attrs} style="height:${HEIGHTS.comfortable}px">
+        <div class="thumb">${cover ? `<img alt="" src="${cover}">` : icon('note')}</div>
+        <div class="lines"><span class="t1"><i class="led ${lampClass(t)}" aria-hidden="true"></i><span>${esc(t.title || t.name)}</span></span><span class="t2">${sub || '&nbsp;'}</span></div>
+        <div class="side"><span class="src ${stateTone(t)}">${esc(stateLabel(t))}</span><span class="dur">${t.duration ? fmtTime(t.duration) : ''}</span></div>
+        ${rowBtns(t)}</div>`;
+    }
+    const lead = S.layout === 'albums' ? `<span class="no">${t.track_number || ''}</span>` : '';
+    return `<div ${attrs} style="height:${HEIGHTS.compact}px">
+      <i class="led ${lampClass(t)}" aria-hidden="true"></i>${lead}
+      <span class="k-title">${esc(t.title || t.name)}</span>
+      <span class="k-artist">${esc(t.artist)}</span>
+      ${S.layout === 'albums' ? '' : `<span class="k-album">${esc(t.album || '')}</span>`}
+      <span class="src ${stateTone(t)}">${esc(stateLabel(t))}</span>
+      <span class="dur">${t.duration ? fmtTime(t.duration) : ''}</span>
+      ${rowBtns(t)}</div>`;
+  }
+
+  function albumHtml(a) {
+    const open = !S.collapsed.has(a.key);
+    const cover = S.covers.get(a.first);
+    const done = a.have === a.n;
+    return `<div class="grp${open ? ' open' : ''}" role="presentation" data-key="${esc(a.key)}" style="height:${HEIGHTS.album}px">
+      <button class="grp-toggle" aria-expanded="${open}" aria-label="${open ? 'Fold' : 'Unfold'} ${esc(a.album)}">${icon('right')}</button>
+      <div class="thumb sm">${cover ? `<img alt="" src="${cover}">` : icon('library')}</div>
+      <div class="grp-text"><b>${esc(a.album)}</b><span>${esc(a.artist)}</span></div>
+      <span class="grp-count${done ? ' done' : ''}">${a.have}/${a.n}</span>
+      <span class="grp-bar" aria-hidden="true"><i style="width:${Math.round((a.have / a.n) * 100)}%"></i></span>
+    </div>`;
   }
 
   function renderRows() {
     const box = $('#table');
     const top = box.scrollTop;
     const h = box.clientHeight || 600;
-    const start = Math.max(0, Math.floor(top / ROW_H) - 4);
-    const end = Math.min(S.view.length, Math.ceil((top + h) / ROW_H) + 4);
+    const start = Math.max(0, itemAt(top) - 6);
+    const end = Math.min(S.items.length, itemAt(top + h) + 6);
     const rows = $('#rows');
-    rows.style.transform = `translateY(${start * ROW_H}px)`;
-    const slice = S.view.slice(start, end);
-    rows.innerHTML = slice.map(rowHtml).join('');
+    rows.style.transform = `translateY(${S.offs[start] || 0}px)`;
+    const slice = S.items.slice(start, end);
+    rows.innerHTML = slice.map((it) => (it.kind === 'album' ? albumHtml(it) : rowHtml(it.t))).join('');
     if (S.active != null) box.setAttribute('aria-activedescendant', `row-${S.active}`); else box.removeAttribute('aria-activedescendant');
-    wantCovers(slice);
+    if (S.layout !== 'compact') wantCovers(slice.map((it) => (it.kind === 'album' ? S.tracks.get(it.first) : it.t)).filter(Boolean));
   }
 
   // cover thumbnails: fetched lazily for the rows on screen, a few at a time
@@ -217,6 +310,13 @@
   function selectOnly(id) { S.sel = new Set([id]); S.anchor = id; }
 
   function onRowClick(ev) {
+    const grp = ev.target.closest('.grp');
+    if (grp) {
+      const key = grp.dataset.key;
+      S.collapsed.has(key) ? S.collapsed.delete(key) : S.collapsed.add(key);
+      buildItems(); renderRows();
+      return;
+    }
     const row = ev.target.closest('.row');
     if (!row) return;
     const id = Number(row.dataset.id);
@@ -361,7 +461,7 @@
     const t = activeTrack();
     $('#detail-empty').hidden = !!t;
     $('#detail-body').hidden = !t;
-    if (!t) return syncBrowser();
+    if (!t) { renderPane(); return syncBrowser(); }
 
     $('#d-title').textContent = t.name;
     $('#d-title').title = t.path;
@@ -402,6 +502,97 @@
     }
     // a new track loads its own search instead of keeping the last track's page
     syncBrowser(S.webUrl === null);
+  }
+
+  // ───────────────────────── right pane without a track: library overview and fetch activity ─────────────────────────
+  function ring(frac, big, small, tone = 'var(--ok)', size = 120) {
+    const r = 46, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac || 0));
+    return `<svg class="ring" viewBox="0 0 108 108" width="${size}" height="${size}" role="img" aria-label="${esc(big)} ${esc(small)}"><circle cx="54" cy="54" r="${r}" class="track"/><circle cx="54" cy="54" r="${r}" class="fill" style="stroke:${tone};stroke-dasharray:${(c * f).toFixed(1)} ${c.toFixed(1)}"/><text x="54" y="55" text-anchor="middle" class="big">${esc(big)}</text><text x="54" y="73" text-anchor="middle" class="small">${esc(small)}</text></svg>`;
+  }
+  const tile = (n, label, tone, filter) => `<button class="tile" ${filter ? `data-filter-go="${filter}"` : 'disabled'}><i class="led ${tone}" aria-hidden="true"></i><b>${n}</b><span>${label}</span></button>`;
+  const fmtDur = (ms) => { const sec = Math.max(0, Math.round(ms / 1000)); const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return h ? `${h}h ${m}m` : `${m}:${String(sec % 60).padStart(2, '0')}`; };
+
+  function setPane(p) {
+    S.pane = p;
+    $$('#pane-tabs [role=tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.pane === p));
+    renderPane();
+  }
+
+  let paneFrame = 0;
+  function renderPane() {
+    if (paneFrame) return;
+    paneFrame = requestAnimationFrame(() => {
+      paneFrame = 0;
+      if (S.active != null || !$('#overview')) return;
+      $('#overview').innerHTML = S.pane === 'activity' ? activityHtml() : overviewHtml();
+    });
+  }
+
+  function overviewHtml() {
+    const all = [...S.tracks.values()];
+    if (!all.length) return '<div class="pane-empty"><h3>Your library at a glance</h3><p>Import music and this shows how many tracks have lyrics, which albums need work, and how each fetch went.</p></div>';
+    const has = all.filter((t) => t.has_lyrics).length;
+    const count = (st) => all.filter((t) => t.status === st).length;
+    const cards = [];
+    cards.push(`<section class="dx-card ov-top">${ring(has / all.length, `${Math.round((has / all.length) * 100)}%`, 'with lyrics')}
+      <div class="ov-sum"><b>${has} of ${all.length} tracks</b><span>have lyrics in the file</span>
+      <div class="tiles">${tile(has, 'Embedded', 'has', 'has')}${tile(all.length - has, 'Missing', 'missing', 'missing')}${count('found') ? tile(count('found'), 'Found', 'found', 'found') : ''}${count('notfound') ? tile(count('notfound'), 'No match', 'notfound', 'notfound') : ''}${count('error') ? tile(count('error'), 'Failed', 'error', 'error') : ''}</div></div></section>`);
+    // albums that need the most work
+    const albums = new Map();
+    for (const t of all) {
+      const k = albumKey(t);
+      const a = albums.get(k) || { album: t.album || 'No album', artist: t.album_artist || t.artist, n: 0, have: 0 };
+      a.n++; if (t.has_lyrics) a.have++;
+      albums.set(k, a);
+    }
+    const worst = [...albums.values()].filter((a) => a.have < a.n).sort((a, b) => (b.n - b.have) - (a.n - a.have) || a.have / a.n - b.have / b.n).slice(0, 8);
+    if (worst.length) {
+      cards.push(`<section class="dx-card"><h3>Albums missing lyrics <span>${[...albums.values()].filter((a) => a.have < a.n).length} of ${albums.size}</span></h3><ul class="ov-albums">${worst.map((a) => `<li><button data-album="${esc(a.album)}" title="Show this album's tracks"><span class="ov-name"><b>${esc(a.album)}</b><span>${esc(a.artist)}</span></span><span class="grp-bar"><i style="width:${Math.round((a.have / a.n) * 100)}%"></i></span><span class="ov-miss">${a.n - a.have} missing</span></button></li>`).join('')}</ul></section>`);
+    } else {
+      cards.push('<section class="dx-card"><h3>Albums</h3><p class="dx-note">Every album has lyrics.</p></section>');
+    }
+    if (S.act?.end) cards.push(`<section class="dx-card"><h3>Last fetch <span>${fmtDur(S.act.end - S.act.start)}</span></h3>${sourcesHtml()}<button class="btn sm" data-pane-go="activity">Open activity</button></section>`);
+    return cards.join('');
+  }
+
+  function sourcesHtml() {
+    const src = Object.entries(S.act?.sources || {}).sort((a, b) => b[1].found - a[1].found || b[1].n - a[1].n);
+    if (!src.length) return '<p class="dx-note">No source has answered yet.</p>';
+    const max = Math.max(...src.map(([, v]) => v.n));
+    return `<ul class="act-src">${src.map(([id, v]) => {
+      const w = (k) => ((v[k] || 0) / max) * 100;
+      return `<li><b>${esc(pname(id))}</b><span class="stack" role="img" aria-label="${v.found} found, ${v.miss} no match, ${v.fail + v.timeout} failed"><i class="f" style="width:${w('found')}%"></i><i class="m" style="width:${w('miss')}%"></i><i class="t" style="width:${w('timeout')}%"></i><i class="x" style="width:${w('fail')}%"></i></span><span class="act-num">${v.found} found · ${v.n ? Math.round(v.ms / v.n) : 0} ms</span></li>`;
+    }).join('')}</ul><div class="act-legend"><span><i class="f"></i>Found</span><span><i class="m"></i>No match</span><span><i class="t"></i>Timed out</span><span><i class="x"></i>Failed</span></div>`;
+  }
+
+  function activityHtml() {
+    const a = S.act;
+    if (!a) return '<div class="pane-empty"><h3>No fetch yet</h3><p>Press Fetch, or search a selection, and this shows the progress, what each source is doing, and every result as it lands.</p></div>';
+    const p = S.progress || { done: 0, total: 0, found: 0, written: 0, missed: 0, running: false };
+    const now = a.end || Date.now();
+    const elapsed = now - a.start;
+    const rate = p.done / Math.max(elapsed / 60000, 1 / 60);
+    const left = p.running && rate > 0 ? ((p.total - p.done) / rate) * 60000 : 0;
+    const all = [...S.tracks.values()];
+    const searching = all.filter((t) => t.status === 'searching');
+    const queued = all.filter((t) => t.status === 'queued').length;
+    const failed = a.recent.filter((r) => r.status === 'error').length;
+    const cards = [];
+    cards.push(`<section class="dx-card ov-top">${ring(p.total ? p.done / p.total : 0, `${p.done}/${p.total}`, p.running ? 'searched' : 'done', p.running ? 'var(--accent)' : 'var(--ok)')}
+      <div class="ov-sum"><b>${p.running ? 'Fetching lyrics' : 'Fetch finished'}</b>
+      <span>${fmtDur(elapsed)} elapsed · ${Math.round(rate)} tracks a minute${p.running && left ? ` · about ${fmtDur(left)} left` : ''}</span>
+      <div class="tiles">${tile(p.found, 'Found', 'found', null)}${tile(p.written, 'Embedded', 'has', null)}${tile(p.missed, 'No match', 'notfound', null)}${tile(failed, 'Failed', 'error', null)}</div>
+      ${p.running ? '<button class="btn sm" data-act-stop>Stop</button>' : ''}</div></section>`);
+    if (p.running) {
+      cards.push(`<section class="dx-card"><h3>Searching now <span>${searching.length} at once · ${queued} waiting</span></h3>${searching.length ? `<ul class="act-now">${searching.slice(0, 12).map((t) => `<li data-go="${t.id}"><i class="led searching" aria-hidden="true"></i><span class="act-t"><b>${esc(t.title)}</b> ${esc(t.artist)}</span><span class="pill">${esc(pname(t.provider) || 'starting')}</span></li>`).join('')}</ul>` : '<p class="dx-note">Starting…</p>'}</section>`);
+    }
+    cards.push(`<section class="dx-card"><h3>Sources</h3>${sourcesHtml()}</section>`);
+    if (a.recent.length) {
+      const word = { found: 'Found', written: 'Embedded', notfound: 'No match', error: 'Failed' };
+      const lamp = { found: 'found', written: 'has', notfound: 'notfound', error: 'error' };
+      cards.push(`<section class="dx-card"><h3>Latest results</h3><ul class="act-now">${a.recent.slice(0, 14).map((r) => { const t = S.tracks.get(r.id); return t ? `<li data-go="${t.id}"><i class="led ${lamp[r.status]}" aria-hidden="true"></i><span class="act-t"><b>${esc(t.title)}</b> ${esc(t.artist)}</span><span class="act-num">${word[r.status]}${r.provider && r.status !== 'notfound' && r.status !== 'error' ? ` · ${esc(pname(r.provider))}` : ''}</span></li>` : ''; }).join('')}</ul></section>`);
+    }
+    return cards.join('');
   }
 
   // ───────────────────────── Tidy: text clean-ups that open in Edit ─────────────────────────
@@ -1060,6 +1251,70 @@
       const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
       items[next].focus();
     });
+    // layout and sort
+    S.layout = ['comfortable', 'compact', 'albums'].includes(store.get('lf-layout')) ? store.get('lf-layout') : 'comfortable';
+    S.sort = ['artist', 'album', 'title', 'status', 'added'].includes(store.get('lf-sort')) ? store.get('lf-sort') : 'artist';
+    const paintView = () => {
+      $$('#view-pop [data-layout]').forEach((b) => b.setAttribute('aria-checked', b.dataset.layout === S.layout));
+      $$('#view-pop [data-sort]').forEach((b) => { b.setAttribute('aria-checked', b.dataset.sort === S.sort); b.disabled = S.layout === 'albums'; });
+      $('#table').dataset.layout = S.layout;
+    };
+    paintView();
+    $('#btn-view').onclick = (e) => openFloating($('#view-pop'), e.currentTarget);
+    $('#view-pop').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-layout], [data-sort]');
+      if (!b || b.disabled) return;
+      if (b.dataset.layout) { S.layout = b.dataset.layout; store.set('lf-layout', S.layout); }
+      if (b.dataset.sort) { S.sort = b.dataset.sort; store.set('lf-sort', S.sort); }
+      paintView();
+      refresh();
+      if (S.active != null) scrollToTrack(S.active);
+    });
+    $('#view-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { const a = S.pop?.anchor; closeFloating(); a?.focus(); } });
+
+    // library overview / activity pane
+    $('#pane-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-pane]'); if (b) setPane(b.dataset.pane); });
+    $('#overview').addEventListener('click', (e) => {
+      const f = e.target.closest('[data-filter-go]');
+      if (f) { setFilter(f.dataset.filterGo); return; }
+      const al = e.target.closest('[data-album]');
+      if (al) { $('#filter').value = al.dataset.album; S.query = al.dataset.album; setFilter('all'); return; }
+      const go = e.target.closest('[data-go]');
+      if (go) { const id = Number(go.dataset.go); selectOnly(id); setActive(id); scrollToTrack(id); renderRows(); renderSelbar(); return; }
+      if (e.target.closest('[data-pane-go]')) { setPane('activity'); return; }
+      if (e.target.closest('[data-act-stop]')) invoke('cancel_search');
+    });
+    setInterval(() => { if (S.progress?.running && S.pane === 'activity' && S.active == null) renderPane(); }, 1000);
+    // the status line opens the activity
+    const status = $('#status');
+    status.tabIndex = 0;
+    status.title = 'Show fetch activity';
+    const openActivity = () => { S.sel.clear(); setActive(null); setPane('activity'); renderRows(); renderSelbar(); renderTop(); };
+    status.addEventListener('click', (e) => { if (!e.target.closest('button')) openActivity(); });
+    status.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openActivity(); } });
+
+    // keyboard shortcuts (⌘ on macOS, Ctrl elsewhere)
+    document.addEventListener('keydown', (e) => {
+      if (S.modalOpen || !(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      const act = {
+        f: () => { $('#filter').focus(); $('#filter').select(); },
+        o: () => (e.shiftKey ? $('#mn-import-folder') : $('#mn-import-files')).click(),
+        enter: () => $('#btn-run').click(),
+        ',': () => $('#btn-settings').click(),
+        1: () => S.active != null && setTab('lyrics', true),
+        2: () => S.active != null && setTab('edit', true),
+        3: () => S.active != null && setTab('web', true),
+        4: () => S.active != null && setTab('info', true),
+      }[k];
+      if (act) { e.preventDefault(); act(); }
+    });
+    const shortcut = /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl+';
+    $('#filter').title = `Filter tracks (${shortcut}F)`;
+    $('#btn-run').title = `Search every listed track and embed the lyrics found (${shortcut}Enter)`;
+    $('#btn-settings').title = `Settings (${shortcut},)`;
+    $('#btn-import').title = `Add tracks (${shortcut}O files, ${shortcut}Shift+O folder)`;
+
     // row context menu
     $('#table').addEventListener('contextmenu', openContextMenu);
     $('#cx-reveal-label').textContent = $('#tm-reveal-label').textContent;
@@ -1181,13 +1436,12 @@
           S.sel = new Set(S.view.slice(Math.min(a, n), Math.max(a, n) + 1).map((t) => t.id));
         } else selectOnly(id);
         setActive(id);
-        const box = $('#table');
-        if (n * ROW_H < box.scrollTop) box.scrollTop = n * ROW_H;
-        else if ((n + 1) * ROW_H > box.scrollTop + box.clientHeight) box.scrollTop = (n + 1) * ROW_H - box.clientHeight;
+        scrollToTrack(id);
         renderRows(); renderSelbar(); renderTop();
       }
     });
 
+    if (/Mac/.test(navigator.userAgent)) document.documentElement.classList.add('mac');
     S.kind = ['auto', 'lrc', 'txt'].includes(store.get('lf-kind')) ? store.get('lf-kind') : 'auto';
     invoke('get_settings').then((s) => {
       S.settings = s;
@@ -1226,7 +1480,12 @@
     T.event.listen('operation-warning', (e) => { logEvent(e.payload); toast(e.payload, 'bad', 8000); });
     T.event.listen('track', (e) => {
       const t = e.payload;
+      const before = S.tracks.get(t.id)?.status;
       S.tracks.set(t.id, t);
+      if (S.act && before !== t.status && ['found', 'written', 'notfound', 'error'].includes(t.status)) {
+        S.act.recent.unshift({ id: t.id, status: t.status, provider: t.provider, at: Date.now() });
+        S.act.recent.length = Math.min(S.act.recent.length, 40);
+      }
       if (t.status === 'found') logEvent(`Found ${t.name} via ${pname(t.provider)}`);
       if (t.status === 'notfound') logEvent(`Not found: ${t.name}${t.note ? '\n' + t.note : ''}`);
       if (t.status === 'error') logEvent(`Error: ${t.name}${t.note ? '\n' + t.note : ''}`);
@@ -1234,14 +1493,21 @@
       if (t.status === 'searching') S.current = `${t.title}${t.provider ? ' via ' + pname(t.provider) : ''}`;
       computeView();
       recount();
-      $('#spacer').style.height = `${S.view.length * ROW_H}px`;
+      buildItems();
       renderRows();
       renderSelbar();
       renderTop();
       if (S.active === t.id) { clearTimeout(wire._t); wire._t = setTimeout(() => setActive(t.id), 120); }
     });
     T.event.listen('progress', (e) => {
-      S.progress = e.payload;
+      const p = e.payload;
+      if (p.running && (!S.act || S.act.end)) {
+        S.act = { start: Date.now(), end: 0, sources: {}, recent: [] };
+        if (S.active == null) setPane('activity');
+      }
+      if (S.act && !p.running && !S.act.end) S.act.end = Date.now();
+      S.progress = p;
+      renderPane();
       if (!e.payload.running) { S.progressAt = Date.now(); setTimeout(drainAutoQueue, 300); }
       renderTop();
     });
@@ -1286,6 +1552,14 @@
     // a source finished for the shown track: refresh its search trail
     let trailTimer = 0;
     T.event.listen('trail', (e) => {
+      const { provider, result, millis } = e.payload;
+      if (S.act && provider && result) {
+        const src = S.act.sources[provider] || (S.act.sources[provider] = { found: 0, miss: 0, fail: 0, timeout: 0, ms: 0, n: 0 });
+        src[result] = (src[result] || 0) + 1;
+        src.ms += millis || 0;
+        src.n++;
+        renderPane();
+      }
       if (e.payload.id !== S.active) return;
       clearTimeout(trailTimer);
       trailTimer = setTimeout(async () => {
@@ -1327,7 +1601,7 @@
     state: S,
     urlFor,
     selectFirst: () => { const t = S.view[0]; if (t) { selectOnly(t.id); setActive(t.id); renderRows(); renderSelbar(); } return !!t; },
-    selectId: (id) => { selectOnly(id); setActive(id); renderRows(); renderSelbar(); },
+    selectId: (id) => { if (id == null) S.sel.clear(); else selectOnly(id); setActive(id); renderRows(); renderSelbar(); },
     setTab,
   };
 
