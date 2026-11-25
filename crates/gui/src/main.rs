@@ -1710,7 +1710,19 @@ fn main() {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     let engine = h.state::<AppState>().0.lock().unwrap().engine.clone();
                     let Ok(engine) = engine else { return };
-                    let q = lyrixearch_core::Query { artist: "Coldplay".into(), title: "Yellow".into(), duration_secs: Some(269), ..Default::default() };
+                    // LYRIXEARCH_CHECKTEST="Artist|Title|Album" picks the song; anything else searches Coldplay - Yellow
+                    let spec = std::env::var("LYRIXEARCH_CHECKTEST").unwrap_or_default();
+                    let parts: Vec<&str> = spec.split('|').collect();
+                    let q = if parts.len() >= 2 {
+                        lyrixearch_core::Query {
+                            artist: parts[0].into(),
+                            title: parts[1].into(),
+                            album: parts.get(2).map(|a| a.to_string()),
+                            ..Default::default()
+                        }
+                    } else {
+                        lyrixearch_core::Query { artist: "Coldplay".into(), title: "Yellow".into(), duration_secs: Some(269), ..Default::default() }
+                    };
                     let t = std::time::Instant::now();
                     let out = engine.find(&q, |_, _| {}).await;
                     let summary = match &out {

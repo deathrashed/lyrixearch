@@ -21,13 +21,8 @@ enable`, or `lyrixearch config set providers a,b,c`). Enabling adds it last. Ord
 
 ## Plugins in this repository
 
-| Folder | Source | Needs |
-| --- | --- | --- |
-| `plugins/metal-archives` | Metal Archives, searched song by song (the lookup from metallum-nim, in Rust) | Rust to build it once, `curl` |
-| `plugins/metallum` | Metal Archives through the separate `metallum` CLI | the `metallum` executable |
-
-`lyrixearch plugins install plugins/metal-archives` copies the folder, builds it, and enables it.
-Lookups go one at a time with two seconds between them, out of courtesy to a small community site.
+`plugins/metallum` reads Metal Archives through the separate `metallum` CLI. Metal Archives is
+also a built-in source (`metal_archives`), so this plugin is only needed for the CLI's cache.
 
 ## Manifest — `plugin.toml`
 

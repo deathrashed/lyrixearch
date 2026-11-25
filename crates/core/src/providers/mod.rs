@@ -21,6 +21,7 @@ mod local;
 pub use local::{find_sidecar, find_sidecar_kind};
 mod lrclib;
 mod lyricsfreak;
+mod metal_archives;
 mod ovh;
 pub mod plugin;
 pub mod web;
@@ -75,8 +76,19 @@ pub fn all(plugins_dir: &std::path::Path) -> Vec<Arc<dyn Provider>> {
     // every scraper that can read a page straight from a URL; the web search hands results to them
     let scrapers = vec![genius.clone(), azlyrics.clone(), letras.clone(), lyricsfreak.clone(), darklyrics.clone(), bandcamp.clone()];
     let ddg: Arc<dyn Provider> = Arc::new(ddg::DuckDuckGo { scrapers });
-    let mut v: Vec<Arc<dyn Provider>> =
-        vec![Arc::new(local::LocalFiles), Arc::new(lrclib::Lrclib), genius, lyricsfreak, darklyrics, bandcamp, Arc::new(ovh::LyricsOvh), azlyrics, letras, ddg];
+    let mut v: Vec<Arc<dyn Provider>> = vec![
+        Arc::new(local::LocalFiles),
+        Arc::new(lrclib::Lrclib),
+        genius,
+        lyricsfreak,
+        darklyrics,
+        bandcamp,
+        Arc::new(ovh::LyricsOvh),
+        Arc::new(metal_archives::MetalArchives),
+        azlyrics,
+        letras,
+        ddg,
+    ];
     let (plugins, _broken) = plugin::discover(plugins_dir);
     for p in plugins {
         // A plugin may not shadow a built-in id.
@@ -126,6 +138,8 @@ pub const BUILTINS: &[Builtin] = &[
     builtin("darklyrics", "DarkLyrics", "Metal lyrics, album pages", 1, 800),
     builtin("bandcamp", "Bandcamp", "Lyrics published by the artist on the track page", 2, 400),
     builtin("lyrics_ovh", "lyrics.ovh", "Plain lyrics, exact names only", 2, 400),
+    // a small community site: one request at a time, with a pause
+    builtin("metal_archives", "Metal Archives", "Metal lyrics, song by song", 1, 1200),
     builtin("azlyrics", "AZLyrics", "Plain lyrics, large English catalogue", 1, 1500),
     builtin("letras", "Letras", "Large catalogue, strong for Portuguese and Spanish music", 1, 800),
     builtin("ddg_search", "Web search (DuckDuckGo)", "Finds a supported page when the others miss", 1, 2500),

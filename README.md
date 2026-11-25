@@ -164,6 +164,7 @@ Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixe
 | `lyricsfreak` | plain lyrics |
 | `darklyrics` | metal lyrics, album pages (plain http only) |
 | `ddg_search` | web-search fallback: finds a page one of the scrapers understands |
+| `metal_archives` | Metal Archives song by song, the original release first (from metallum-nim); in the desktop app its Cloudflare check is answered in the hidden browser |
 | `bandcamp` | lyrics the artist published on the track page |
 | `lyrics_ovh` | exact-name API |
 

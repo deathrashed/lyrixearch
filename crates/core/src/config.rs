@@ -344,7 +344,7 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, old).unwrap();
         let mut c = Config::load_from(&path).unwrap();
-        assert_eq!(c.providers, ["lrclib", "lyricsfreak", "azlyrics", "letras"], "removed sources go, new ones are added");
+        assert_eq!(c.providers, ["lrclib", "lyricsfreak", "metal_archives", "azlyrics", "letras"], "removed sources go, new ones are added");
         assert!(!c.providers.contains(&"genius".to_string()), "a source the person turned off stays off");
         // once offered, turning a new one off sticks
         c.providers.retain(|p| p != "azlyrics");
