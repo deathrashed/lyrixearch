@@ -134,12 +134,14 @@ The header counts files, with lyrics, left to search and NA; while searching, th
 | Command | What it does |
 | --- | --- |
 | `scan <paths> [-r]` | list tracks and which lack lyrics |
-| `fetch <paths> [-r] [--dry-run] [--overwrite] [--sidecar auto\|lrc\|txt]` | search and embed |
-| `embed-files <paths…>` | embed the `.lrc`/`.txt` beside each track |
-| `show <file>` / `remove <paths…>` | print or delete embedded lyrics |
+| `fetch <paths> [-r] [--dry-run] [--overwrite] [--synced] [--sidecar off\|auto\|lrc\|txt] [--keep-mtime\|--no-keep-mtime]` | search and embed |
+| `embed-files <paths…> [--overwrite] [--dry-run]` | embed the `.lrc`/`.txt` beside each track (an `.lrc` fills the synced field too) |
+| `show <file>` / `remove <paths…> [--yes]` | print or delete embedded lyrics (`remove` needs `--yes` without a terminal) |
 | `providers [--test]` | list sources, optionally health-check them |
 | `plugins list\|install\|test\|path` | manage plugins |
-| `config show\|set\|path\|reset` | settings (TOML) |
+| `config show\|get\|set\|path\|reset` | settings (TOML) |
+
+`--json` on `scan`, `fetch`, `embed-files`, `remove`, `providers` and `plugins list` prints one JSON object per line on stdout, for scripts.
 
 </details>
 
