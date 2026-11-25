@@ -6,9 +6,69 @@ use regex::Regex;
 
 pub const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-/// GET a page as text. Challenge pages and bot walls are reported as errors — we do not try
-/// to get around them.
+/// A real browser engine that can load pages a plain HTTP client is turned away from. Cloudflare's
+/// bot checks also fingerprint the connection itself, so even a passed check's cookie does not let
+/// an HTTP client in; a browser window that passed the check can keep loading that site's pages.
+/// The desktop app registers its hidden browser with [`set_browser`]; the CLI has none and gets
+/// [`super::Challenge`] errors instead.
+#[async_trait::async_trait]
+pub trait BrowserFetch: Send + Sync {
+    /// The page at `url`: its HTML, or with `text` its visible text (for JSON endpoints).
+    /// A check that needs a person should come back as a [`super::Challenge`] error.
+    async fn fetch(&self, url: &str, text: bool) -> Result<String>;
+}
+
+static BROWSER: once_cell::sync::OnceCell<std::sync::Arc<dyn BrowserFetch>> = once_cell::sync::OnceCell::new();
+/// Sites that answered a plain request with a bot check: their pages go through the browser from then on.
+static BROWSER_HOSTS: Lazy<std::sync::RwLock<std::collections::HashSet<String>>> = Lazy::new(Default::default);
+
+/// Register the browser used for sites behind bot checks (once per process).
+pub fn set_browser(browser: std::sync::Arc<dyn BrowserFetch>) {
+    let _ = BROWSER.set(browser);
+}
+
+fn host_of(url: &str) -> String {
+    let host = url.split('/').nth(2).unwrap_or("").split(':').next().unwrap_or("").to_ascii_lowercase();
+    host.strip_prefix("www.").map(str::to_string).unwrap_or(host)
+}
+
+/// Mark `url`'s site as one that needs the browser (also used by tests).
+pub fn route_through_browser(url: &str) {
+    BROWSER_HOSTS.write().unwrap().insert(host_of(url));
+}
+
+/// GET a page's HTML. A site that answers with a bot check is loaded through the registered
+/// browser instead (see [`BrowserFetch`]); without one the check is reported as an error.
 pub async fn get_html(http: &reqwest::Client, url: &str, headers: &[(&str, &str)]) -> Result<String> {
+    get(http, url, headers, false).await
+}
+
+/// Like [`get_html`], for endpoints that answer with text such as JSON.
+pub async fn get_text(http: &reqwest::Client, url: &str, headers: &[(&str, &str)]) -> Result<String> {
+    get(http, url, headers, true).await
+}
+
+async fn get(http: &reqwest::Client, url: &str, headers: &[(&str, &str)], text: bool) -> Result<String> {
+    let browser = BROWSER.get();
+    if let Some(b) = browser {
+        if BROWSER_HOSTS.read().unwrap().contains(&host_of(url)) {
+            return b.fetch(url, text).await;
+        }
+    }
+    match plain_get(http, url, headers).await {
+        Err(e) if e.downcast_ref::<super::Challenge>().is_some() => match browser {
+            Some(b) => {
+                route_through_browser(url);
+                b.fetch(url, text).await
+            }
+            None => Err(e),
+        },
+        other => other,
+    }
+}
+
+/// GET a page over plain HTTP. Challenge pages and bot walls are reported as errors.
+async fn plain_get(http: &reqwest::Client, url: &str, headers: &[(&str, &str)]) -> Result<String> {
     let mut req = http.get(url).header("User-Agent", BROWSER_UA).header("Accept-Language", "en-US,en;q=0.9");
     for (k, v) in headers {
         req = req.header(*k, *v);
@@ -132,6 +192,26 @@ mod tests {
         assert_eq!(ascii_fold("Mötley Crüe"), "Motley Crue");
         assert_eq!(ascii_fold("Beyoncé, Sigur Rós, Ñu"), "Beyonce, Sigur Ros, Nu");
         assert_eq!(ascii_fold("夜に駆ける"), "夜に駆ける");
+    }
+
+    struct FakeBrowser;
+
+    #[async_trait::async_trait]
+    impl BrowserFetch for FakeBrowser {
+        async fn fetch(&self, url: &str, text: bool) -> Result<String> {
+            Ok(format!("browser:{url}:{text}"))
+        }
+    }
+
+    #[tokio::test]
+    async fn sites_behind_checks_go_through_the_browser() {
+        set_browser(std::sync::Arc::new(FakeBrowser));
+        route_through_browser("https://www.checked.example/x");
+        // no network involved: the site is known to need the browser
+        let http = reqwest::Client::new();
+        assert_eq!(get_html(&http, "https://checked.example/song", &[]).await.unwrap(), "browser:https://checked.example/song:false");
+        assert_eq!(get_text(&http, "https://www.checked.example/api", &[]).await.unwrap(), "browser:https://www.checked.example/api:true");
+        assert_eq!(host_of("https://WWW.Example.org:443/a"), "example.org");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 // Prevents an extra console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod browser;
 mod player;
 mod tray;
 
@@ -56,6 +57,8 @@ struct Inner {
     browser_mobile: bool,
     /// Where the UI last asked the browser panel to sit, so it can be put back after a window resize.
     browser_rect: Option<Rect>,
+    /// Source waiting for a bot check to be passed (its penalty is cleared afterwards).
+    check_provider: Option<String>,
 }
 
 /// Cookies from bot checks passed in the verification window, shared with every engine rebuild.
@@ -731,44 +734,29 @@ fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>,
     Ok(())
 }
 
-/// A source asked for a bot check: show it in a real browser window. Cookies from that window are copied
-/// into the engine's jar every second (so a check that passes by itself, or one the person solves, is
-/// picked up), and the source's penalty is cleared when the window ends.
+/// A source reported a bot check that the hidden browser could not pass by itself (see
+/// [`browser`]). The check is already waiting in the hidden window; this only remembers which source
+/// to put back to work once it is passed, and repeats the notice for the UI.
 #[tauri::command]
-async fn open_challenge(app: AppHandle, state: State<'_, AppState>, url: String, provider: String) -> CmdResult<()> {
-    if let Some(w) = app.get_webview_window("challenge") {
-        let _ = w.set_focus();
-        return Ok(());
+fn open_challenge(app: AppHandle, state: State<'_, AppState>, url: String, provider: String) -> CmdResult<()> {
+    let host = url.split('/').nth(2).unwrap_or(&url).to_string();
+    state.0.lock().unwrap().check_provider = Some(provider);
+    if app.get_webview_window(browser::LABEL).is_some() {
+        let _ = app.emit("check-needed", browser::CheckInfo { host });
     }
-    let engine = state.0.lock().unwrap().engine.clone()?;
-    let u = parse_url(&url)?;
-    let w = tauri::WebviewWindowBuilder::new(&app, "challenge", WebviewUrl::External(u.clone()))
-        .title(format!("Verify you are human: {}", u.host_str().unwrap_or("")))
-        .inner_size(560.0, 720.0)
-        .user_agent(lyrixearch_core::providers::web::BROWSER_UA)
-        .build()
-        .map_err(err)?;
-    let jar = jar();
-    tauri::async_runtime::spawn(async move {
-        for _ in 0..300 {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            let Ok(cookies) = w.cookies_for_url(u.clone()) else { break };
-            let mut passed = false;
-            for c in cookies {
-                passed |= c.name() == "cf_clearance";
-                jar.add_cookie_str(&c.to_string(), &u);
-            }
-            if passed {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                break;
-            }
-        }
-        engine.clear_penalty(&provider);
-        engine.forget_announced();
-        let _ = w.app_handle().emit("challenge-done", provider);
-        let _ = w.close();
-    });
     Ok(())
+}
+
+/// Open the waiting bot check: the person chose to pass it.
+#[tauri::command]
+fn show_check(app: AppHandle) -> CmdResult<()> {
+    browser::HiddenBrowser::show(&app).map_err(err)
+}
+
+/// Put the waiting bot check away; the source stays skipped for a while.
+#[tauri::command]
+fn dismiss_check(app: AppHandle) {
+    browser::HiddenBrowser::hide(&app);
 }
 
 /// Switch the web panel between the phone and desktop layout. The page is rebuilt with the
@@ -1080,7 +1068,7 @@ fn selftest_report(app: AppHandle, info: String) {
         eprintln!(
             "SELFTEST challenge cookies in the engine jar: {:?}, challenge window open: {}",
             jar().cookies(&u),
-            app.get_webview_window("challenge").is_some()
+            app.get_webview_window(browser::LABEL).is_some()
         );
     }
     if let Some(w) = app.get_window("main") {
@@ -1246,6 +1234,7 @@ fn main() {
         zoom: 1.0,
         browser_mobile: true,
         browser_rect: None,
+        check_provider: None,
     }));
 
     tauri::Builder::default()
@@ -1287,9 +1276,28 @@ fn main() {
             browser_zoom,
             browser_mobile,
             open_challenge,
+            show_check,
+            dismiss_check,
         ])
         .setup(|app| {
             app.manage(player::Player::start(app.handle().clone()));
+            // sources behind bot checks load their pages through a hidden browser window
+            lyrixearch_core::providers::web::set_browser(std::sync::Arc::new(browser::HiddenBrowser::new(app.handle().clone())));
+            {
+                use tauri::Listener;
+                let h = app.handle().clone();
+                app.handle().listen("check-cleared", move |_| {
+                    let state = h.state::<AppState>();
+                    let mut inner = state.0.lock().unwrap();
+                    let provider = inner.check_provider.take();
+                    if let Ok(engine) = &inner.engine {
+                        if let Some(p) = provider {
+                            engine.clear_penalty(&p);
+                        }
+                        engine.forget_announced();
+                    }
+                });
+            }
             if let Err(e) = tray::install(app.handle()) {
                 // some Linux desktops have no tray; the app works the same without it
                 eprintln!("lyrixearch: no tray icon: {e}");
@@ -1302,6 +1310,27 @@ fn main() {
                 .build()?;
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
             window.add_child(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
+
+            // Debug builds only: search one song through the configured sources and print the outcome
+            // (LYRIXEARCH_CHECKTEST=1, used to check sources behind bot checks with the hidden browser).
+            #[cfg(debug_assertions)]
+            if std::env::var_os("LYRIXEARCH_CHECKTEST").is_some() {
+                let h = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let engine = h.state::<AppState>().0.lock().unwrap().engine.clone();
+                    let Ok(engine) = engine else { return };
+                    let q = lyrixearch_core::Query { artist: "Coldplay".into(), title: "Yellow".into(), duration_secs: Some(269), ..Default::default() };
+                    let t = std::time::Instant::now();
+                    let out = engine.find(&q, |_, _| {}).await;
+                    let summary = match &out {
+                        lyrixearch_core::Outcome::Found(l) => format!("found via {} ({} chars)", l.source, l.plain.as_deref().map_or(0, str::len)),
+                        other => format!("{other:?}"),
+                    };
+                    eprintln!("CHECKTEST {summary} in {:.1}s", t.elapsed().as_secs_f32());
+                    h.exit(0);
+                });
+            }
 
             // Debug builds only: the built-in native self-test (LYRIXEARCH_SELFTEST=1).
             #[cfg(debug_assertions)]
@@ -1338,6 +1367,10 @@ fn main() {
             // The UI webview always fills the window; the browser panel is positioned by the UI.
             let handle = app.handle().clone();
             window.on_window_event(move |ev| {
+                // the hidden check window must not keep the app alive once the main window is gone
+                if let WindowEvent::Destroyed = ev {
+                    handle.exit(0);
+                }
                 if let WindowEvent::ThemeChanged(_) = ev {
                     tray::refresh_theme(&handle);
                 }

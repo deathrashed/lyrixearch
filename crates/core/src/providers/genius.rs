@@ -3,7 +3,6 @@
 //! reported as "blocked" rather than bypassed.
 
 use super::web::{balanced_div, get_html, html_to_text, split_artist_title};
-use super::CheckStatus;
 use super::Provider;
 use crate::clean::{clean_title, strip_featuring};
 use crate::config::Config;
@@ -87,6 +86,12 @@ impl Provider for Genius {
         read_page(http, url, q, cfg, true).await
     }
 
+    /// Genius sits behind Cloudflare: in the desktop app its pages may load through the hidden browser,
+    /// where the first page waits for the bot check to pass.
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(60))
+    }
+
     async fn fetch(&self, http: &reqwest::Client, q: &Query, cfg: &Config) -> Result<Option<Lyrics>> {
         // 1) straight to the guessed slug
         let slug = slugify(&format!("{} {}", strip_featuring(&q.artist), clean_title(&strip_featuring(&q.title))));
@@ -100,17 +105,12 @@ impl Provider for Genius {
         }
 
         // 2) ask Genius's public search for the real URL
-        let resp: Value = http
-            .get("https://genius.com/api/search/multi")
-            .header("User-Agent", super::web::BROWSER_UA)
-            .query(&[("q", format!("{} {}", q.artist, q.title)), ("per_page", "5".into())])
-            .send()
-            .await
-            .context("genius search")?
-            .check_status("genius")?
-            .json()
-            .await
-            .context("genius search: bad json")?;
+        let search = format!("https://genius.com/api/search/multi?per_page=5&q={}", urlencoding::encode(&format!("{} {}", q.artist, q.title)));
+        let body = super::web::get_text(http, &search, &[]).await.context("genius search")?;
+        if body.is_empty() {
+            return Ok(None);
+        }
+        let resp: Value = serde_json::from_str(&body).context("genius search: bad json")?;
         let sections = resp.pointer("/response/sections").and_then(Value::as_array).cloned().unwrap_or_default();
         let best = sections
             .iter()
