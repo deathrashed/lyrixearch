@@ -126,7 +126,9 @@
   // display name of a source ("lrclib" -> "LRCLIB"), from the catalog the backend sends
   const pname = (id) => (id && S.settings?.providers?.find((p) => p.id === id)?.name) || id || '';
   function lampClass(t) { return t.status === 'idle' ? (t.has_lyrics ? 'has' : 'missing') : t.status; }
-  function stateLabel(t) {
+  const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+  function stateLabel(t) { return cap(stateWord(t)); }
+  function stateWord(t) {
     switch (t.status) {
       case 'queued': return 'queued';
       case 'searching': return t.provider ? `searching · ${pname(t.provider)}` : 'searching';
@@ -383,9 +385,9 @@
     $('#d-title').textContent = t.name;
     $('#d-title').title = t.path;
     $('#d-led').className = `led ${lampClass(t)}`;
-    const tags = [`<span class="tag ${stateTone(t)}">${esc(stateLabel(t))}</span>`, `<span class="tag">${esc(t.format)}</span>`];
+    const tags = [`<span class="tag ${stateTone(t)}">${esc(stateLabel(t))}</span>`, `<span class="tag">${esc((t.format || '').toUpperCase())}</span>`];
     if (t.status === 'found' || t.status === 'written') tags.push(`<span class="tag">${Math.round((t.score || 0) * 100)}%</span>`);
-    if (t.synced) tags.push('<span class="tag lit">synced</span>');
+    if (t.synced) tags.push('<span class="tag lit">Synced</span>');
     $('#d-tags').innerHTML = tags.join('');
     $('#d-meta').innerHTML = `<b>${esc(t.artist) || 'Unknown artist'}</b> — ${esc(t.title)}${t.album ? ` · ${esc(t.album)}` : ''}`;
     $('#d-meta').title = `${t.artist} — ${t.title}${t.album ? ' · ' + t.album : ''}`;
@@ -409,10 +411,10 @@
     ta.value = d.found?.plain || d.embedded || '';
     ta.dataset.orig = ta.value;
 
-    const rows = [['File', t.name], ['Folder', t.folder], ['Format', t.format], ['Duration', t.duration ? fmtTime(t.duration) : 'unknown'], ['Artist', t.artist], ['Title', t.title], ['Album', t.album || 'none'], ['State', stateLabel(t)]];
+    const rows = [['Status', stateLabel(t)], ['Artist', t.artist], ['Title', t.title], ['Album', t.album || '—'], ['Duration', t.duration ? fmtTime(t.duration) : '—'], ['Format', (t.format || '').toUpperCase()], ['File', t.name], ['Folder', t.folder]];
     if (d.found?.url) rows.push(['Source page', d.found.url]);
     if (t.note) rows.push(['Sources', t.note]);
-    $('#info').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('');
+    $('#info').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === 'Folder' || k === 'Source page' ? ' class="link"' : ''}>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('');
 
     const q = $('#web-query');
     if (q.dataset.for !== String(t.id)) {
@@ -794,7 +796,7 @@
   function renderSettings() {
     $('#provider-list').innerHTML = providerOrder().map((p, i, arr) => `<li class="${p.enabled ? '' : 'off'}" data-id="${esc(p.id)}">
       <div class="ord"><button data-mv="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 || !p.enabled ? 'disabled' : ''}>${icon('up')}</button><button data-mv="1" aria-label="Move ${esc(p.name)} down" ${!p.enabled || arr[i + 1]?.enabled === false || i === arr.length - 1 ? 'disabled' : ''}>${icon('down')}</button></div>
-      <div class="grow"><div class="nm">${esc(p.name)} ${p.kind === 'plugin' ? '<span class="tag lit">plugin</span>' : ''}</div><div class="nt">${esc(p.note)}</div></div>
+      <div class="grow"><div class="nm">${esc(p.name)} ${p.kind === 'plugin' ? '<span class="tag lit">Plugin</span>' : ''}</div><div class="nt">${esc(p.note)}</div></div>
       <label class="switch"><input type="checkbox" aria-label="Use ${esc(p.name)}" ${p.enabled ? 'checked' : ''}><i></i></label></li>`).join('');
 
     const g = draft;
@@ -825,7 +827,7 @@
 
     const plugins = S.settings.providers.filter((p) => p.kind === 'plugin');
     $('#plugin-list').innerHTML = plugins.length
-      ? plugins.map((p) => `<li><div class="grow"><div class="nm">${esc(p.name)}</div><div class="nt">${esc(p.id)} · ${esc(p.note)}</div></div><span class="tag ${draft.providers.includes(p.id) ? 'lit' : ''}">${draft.providers.includes(p.id) ? 'enabled' : 'disabled'}</span></li>`).join('')
+      ? plugins.map((p) => `<li><div class="grow"><div class="nm">${esc(p.name)}</div><div class="nt">${esc(p.id)} · ${esc(p.note)}</div></div><span class="tag ${draft.providers.includes(p.id) ? 'lit' : ''}">${draft.providers.includes(p.id) ? 'Enabled' : 'Disabled'}</span></li>`).join('')
       : '<li><div class="grow nt">No plugins installed yet.</div></li>';
     $('#plugins-dir').textContent = S.settings.plugins_dir;
     $('#config-path').textContent = S.settings.config_path;

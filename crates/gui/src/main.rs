@@ -1152,7 +1152,7 @@ const SELFTEST_JS: &str = r#"
     out.tauri = !!window.__TAURI__;
     out.mock = !!window.__MOCK__;
     await document.fonts.ready;
-    out.fonts = document.fonts.check('15px "Source Sans 3"') && document.fonts.check('600 14px "Sora"') && document.fonts.check('600 14px "Inter"');
+    out.font = getComputedStyle(document.body).fontFamily.split(',')[0];
     out.layout = { inner: innerWidth, detail: Math.round(document.getElementById('detail').getBoundingClientRect().width), cssVar: getComputedStyle(document.getElementById('app')).getPropertyValue('--detail-w').trim(), saved: (() => { try { return localStorage.getItem('lf-detail-w'); } catch { return 'n/a'; } })() };
     const mark = document.querySelector('.mark');
     out.icon = mark.complete && mark.naturalWidth > 0;
