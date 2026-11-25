@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -66,28 +66,22 @@ pub struct Config {
     pub last_added: Vec<String>,
     /// Terminal UI: start searching the tracks that were just added.
     pub tui_search_new: bool,
+    /// Accept only results that come with synced (timestamped) lyrics.
+    pub synced_only: bool,
+    /// Optional Last.fm API key. When set, artist and title are run through Last.fm's
+    /// correction service before searching (fixes misspellings and alternate names).
+    pub lastfm_api_key: Option<String>,
+    /// Strip "(Remastered 2011)", "[Live at ...]" style noise from titles before searching.
+    pub tag_clean_enabled: bool,
+    /// Extra regex removed from titles before searching (applied after the built-in clean-up).
+    pub tag_clean_pattern: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             // Same order the original ships with, restricted to sources this build implements.
-            providers: [
-                "local_files",
-                "genius",
-                "lrclib",
-                "lyricsfreak",
-                "darklyrics",
-                "ddg_search",
-                "netease",
-                "qqmusic",
-                "kugou",
-                "utaten",
-                "bandcamp",
-                "lyrics_ovh",
-            ]
-            .map(String::from)
-            .to_vec(),
+            providers: crate::providers::builtin_ids(),
             concurrency: 10,
             provider_timeout_secs: 8,
             penalty_max_failures: 3,
@@ -106,6 +100,10 @@ impl Default for Config {
             browse_roots: Vec::new(),
             last_added: Vec::new(),
             tui_search_new: true,
+            synced_only: false,
+            lastfm_api_key: None,
+            tag_clean_enabled: true,
+            tag_clean_pattern: None,
         }
     }
 }
@@ -121,10 +119,13 @@ impl Config {
             let olds =
                 [native.as_ref().map(|b| b.join("lyrixearch")), native.as_ref().map(|b| b.join("lyricfind")), Self::xdg_base().map(|b| b.join("lyricfind"))];
             if let Some(old) = olds.into_iter().flatten().find(|p| p.is_dir() && *p != new) {
-                if let Some(parent) = new.parent() {
-                    let _ = std::fs::create_dir_all(parent);
+                let moved = new.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::rename(&old, &new));
+                if let Err(e) = moved {
+                    // Moving failed (another volume, permissions): keep using the old folder so the
+                    // user's settings and plugins are still found, rather than starting empty.
+                    eprintln!("lyrixearch: could not move settings from {} to {}: {e}; using the old folder", old.display(), new.display());
+                    return Some(old);
                 }
-                let _ = std::fs::rename(&old, &new);
             }
         }
         Some(new)
@@ -148,23 +149,103 @@ impl Config {
         Self::config_dir().map(|d| d.join("config.toml"))
     }
 
-    /// Load from the default location; missing file means defaults.
+    /// Load from the default location; missing file means defaults. A file that cannot be read
+    /// or parsed is an error: callers must not save over it (see [`Config::quarantine_unreadable`]).
     pub fn load() -> Result<Self> {
         let Some(path) = Self::path() else { return Ok(Self::default()) };
-        match std::fs::read_to_string(&path) {
-            Ok(s) => toml::from_str(&s).with_context(|| format!("parsing {}", path.display())),
+        Self::load_from(&path)
+    }
+
+    /// Load from `path`; missing file means defaults.
+    pub fn load_from(path: &Path) -> Result<Self> {
+        match std::fs::read_to_string(path) {
+            Ok(s) => {
+                let cfg: Self = toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
+                cfg.validate().with_context(|| format!("checking {}", path.display()))?;
+                Ok(cfg)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
     }
 
+    /// Move an unreadable settings file aside (`config.toml.broken-<unix time>`) so the app can run
+    /// on defaults without overwriting it. Returns where the file went, or `None` if there was none.
+    pub fn quarantine_unreadable() -> Result<Option<PathBuf>> {
+        let Some(path) = Self::path() else { return Ok(None) };
+        Self::quarantine_file(&path)
+    }
+
+    fn quarantine_file(path: &Path) -> Result<Option<PathBuf>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let mut name = path.file_name().unwrap_or_default().to_os_string();
+        name.push(format!(".broken-{stamp}"));
+        let dest = path.with_file_name(name);
+        std::fs::rename(path, &dest).with_context(|| format!("moving {} aside", path.display()))?;
+        Ok(Some(dest))
+    }
+
     pub fn save(&self) -> Result<PathBuf> {
         let path = Self::path().context("no config directory on this platform")?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(&path, toml::to_string_pretty(self)?)?;
+        self.save_to(&path)?;
         Ok(path)
+    }
+
+    /// Write atomically: a temporary file next to `path`, then a rename, so a crash or a full
+    /// disk never leaves a half-written settings file behind.
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        }
+        crate::atomic::write(path, toml::to_string_pretty(self)?.as_bytes())
+    }
+
+    /// Reject values that would only fail later (a bad title-clean regex, zero concurrency, a bad proxy).
+    pub fn validate(&self) -> Result<()> {
+        if let Some(rx) = self.tag_clean_pattern.as_deref().filter(|s| !s.trim().is_empty()) {
+            regex::Regex::new(rx).with_context(|| format!("tag_clean_pattern is not a valid regex: `{rx}`"))?;
+        }
+        if !(0.0..=1.0).contains(&self.min_score) {
+            anyhow::bail!("min_score must be between 0 and 1 (got {})", self.min_score);
+        }
+        if let Some(p) = self.proxy.as_deref() {
+            reqwest::Proxy::all(p).with_context(|| format!("invalid proxy url `{p}`"))?;
+        }
+        Ok(())
+    }
+
+    /// Read one key as text, for `lyrixearch config get KEY`. Lists are comma-separated; unset options are empty.
+    pub fn get(&self, key: &str) -> Result<String> {
+        let list = |v: &[String]| v.join(",");
+        let opt = |v: &Option<String>| v.clone().unwrap_or_default();
+        Ok(match key {
+            "providers" => list(&self.providers),
+            "concurrency" => self.concurrency.to_string(),
+            "provider_timeout_secs" => self.provider_timeout_secs.to_string(),
+            "penalty_max_failures" => self.penalty_max_failures.to_string(),
+            "penalty_window_secs" => self.penalty_window_secs.to_string(),
+            "penalty_cooldown_secs" => self.penalty_cooldown_secs.to_string(),
+            "write_tags" => self.write_tags.to_string(),
+            "sidecar" => format!("{:?}", self.sidecar).to_ascii_lowercase(),
+            "keep_mtime" => self.keep_mtime.to_string(),
+            "overwrite" => self.overwrite.to_string(),
+            "remove_section_tags" => self.remove_section_tags.to_string(),
+            "prepend_newline" => self.prepend_newline.to_string(),
+            "proxy" => opt(&self.proxy),
+            "min_score" => self.min_score.to_string(),
+            "search_engine" => self.search_engine.clone(),
+            "library_dirs" => list(&self.library_dirs),
+            "browse_roots" => list(&self.browse_roots),
+            "tui_search_new" => self.tui_search_new.to_string(),
+            "synced_only" => self.synced_only.to_string(),
+            "lastfm_api_key" => opt(&self.lastfm_api_key),
+            "tag_clean_enabled" => self.tag_clean_enabled.to_string(),
+            "tag_clean_pattern" => opt(&self.tag_clean_pattern),
+            _ => anyhow::bail!("unknown key `{key}`"),
+        })
     }
 
     /// Set one key from a string, for `lyrixearch config set KEY VALUE`.
@@ -188,8 +269,106 @@ impl Config {
             "search_engine" => self.search_engine = value.to_string(),
             "browse_roots" => self.browse_roots = value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
             "tui_search_new" => self.tui_search_new = b(value)?,
+            "synced_only" => self.synced_only = b(value)?,
+            "lastfm_api_key" => self.lastfm_api_key = Some(value.trim().to_string()).filter(|s| !s.is_empty()),
+            "tag_clean_enabled" => self.tag_clean_enabled = b(value)?,
+            "tag_clean_pattern" => self.tag_clean_pattern = Some(value.to_string()).filter(|s| !s.trim().is_empty()),
             _ => anyhow::bail!("unknown key `{key}`"),
         }
-        Ok(())
+        self.validate()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("lyrixearch-cfg-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn set_get_round_trip_for_every_key() {
+        let mut c = Config::default();
+        for (k, v) in [
+            ("providers", "lrclib,genius"),
+            ("concurrency", "4"),
+            ("sidecar", "lrc"),
+            ("keep_mtime", "false"),
+            ("proxy", "http://127.0.0.1:8080"),
+            ("synced_only", "true"),
+            ("lastfm_api_key", "abc123"),
+            ("tag_clean_enabled", "false"),
+            ("tag_clean_pattern", r"\s*\(demo\)$"),
+            ("browse_roots", "/a, /b"),
+        ] {
+            c.set(k, v).unwrap_or_else(|e| panic!("set {k}: {e:#}"));
+        }
+        assert_eq!(c.get("providers").unwrap(), "lrclib,genius");
+        assert_eq!(c.get("concurrency").unwrap(), "4");
+        assert_eq!(c.get("sidecar").unwrap(), "lrc");
+        assert_eq!(c.get("keep_mtime").unwrap(), "false");
+        assert_eq!(c.get("synced_only").unwrap(), "true");
+        assert_eq!(c.get("lastfm_api_key").unwrap(), "abc123");
+        assert_eq!(c.get("tag_clean_pattern").unwrap(), r"\s*\(demo\)$");
+        assert_eq!(c.get("browse_roots").unwrap(), "/a,/b");
+        // empty value clears an option
+        c.set("lastfm_api_key", "").unwrap();
+        assert_eq!(c.lastfm_api_key, None);
+        assert!(c.get("nope").is_err());
+        assert!(c.set("nope", "1").is_err());
+    }
+
+    #[test]
+    fn set_rejects_bad_values() {
+        let mut c = Config::default();
+        assert!(c.set("tag_clean_pattern", "(unclosed").is_err());
+        assert!(c.set("keep_mtime", "maybe").is_err());
+        assert!(c.set("min_score", "3").is_err());
+        assert!(c.set("sidecar", "zip").is_err());
+    }
+
+    #[test]
+    fn save_is_atomic_and_loads_back() {
+        let dir = temp_dir("save");
+        let path = dir.join("config.toml");
+        let c = Config { concurrency: 3, synced_only: true, ..Config::default() };
+        c.save_to(&path).unwrap();
+        let back = Config::load_from(&path).unwrap();
+        assert_eq!(back.concurrency, 3);
+        assert!(back.synced_only);
+        // no temporary files left beside it
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("config.toml")]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn old_files_without_new_keys_still_load() {
+        let dir = temp_dir("old");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "concurrency = 2\nsidecar = \"off\"\n").unwrap();
+        let c = Config::load_from(&path).unwrap();
+        assert_eq!(c.concurrency, 2);
+        assert!(c.tag_clean_enabled, "new keys take their defaults");
+        assert!(!c.synced_only);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unreadable_file_is_an_error_and_can_be_moved_aside() {
+        let dir = temp_dir("broken");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "concurrency = \"not a number\"\n").unwrap();
+        assert!(Config::load_from(&path).is_err());
+        let moved = Config::quarantine_file(&path).unwrap().unwrap();
+        assert!(!path.exists());
+        assert!(moved.file_name().unwrap().to_string_lossy().starts_with("config.toml.broken-"));
+        assert_eq!(std::fs::read_to_string(&moved).unwrap(), "concurrency = \"not a number\"\n");
+        assert_eq!(Config::quarantine_file(&path).unwrap(), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
