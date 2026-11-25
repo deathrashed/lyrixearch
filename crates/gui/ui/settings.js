@@ -18,8 +18,11 @@
     files: ['Files', 'What is written into your music files'],
     appearance: ['Appearance', 'Theme, colour and size'],
     plugins: ['Plugins', 'Scripts that act as extra sources'],
+    diagnostics: ['Diagnostics', 'Checks to run when something does not work, and a report to share'],
     about: ['About', ''],
   };
+  const IS_MAC = /Mac/.test(navigator.userAgent);
+  const BAR = IS_MAC ? 'menu bar' : 'tray';
   const ENGINE_LABELS = { google: 'Google', google_ai: 'Google AI Mode', brave_ai: 'Brave AI', bing: 'Bing', duckduckgo: 'DuckDuckGo', yahoo: 'Yahoo', yandex: 'Yandex' };
 
   function toast(msg, kind = '') {
@@ -58,6 +61,11 @@
       ]) + group('Network', [
         row('search_engine', 'Web search engine', 'Used by the Web tab', sel('search_engine', settings.engines.map((e) => [e, ENGINE_LABELS[e] || e]))),
         row('proxy', 'Proxy', 'http:// or socks5:// address, empty for none', `${txt('proxy', 'none')}<span class="setting-error" id="err-proxy" role="alert"></span>`),
+      ]) + group('Background', [
+        row('keep_running', `Keep running in the ${BAR}`, `Closing the window leaves Lyrixearch in the ${BAR}, so a fetch carries on`, sw('keep_running')),
+        row('notify_done', 'Notify when a fetch finishes', 'Only while the window is in the background', sw('notify_done')),
+        row('keep_awake', 'Keep the computer awake', 'Stops sleep while a fetch runs', sw('keep_awake')),
+        ...(IS_MAC ? [row('drop_shelf', 'Drop zone under the menu bar icon', 'Drag music near the icon and a drop zone opens to add it', sw('drop_shelf'))] : []),
       ]);
     } else if (section === 'files') {
       body.innerHTML = group('Embedding', [
@@ -97,6 +105,12 @@
         : '<p class="sw-empty">No plugins installed yet.</p>'}</div>
         <div class="sw-actions"><button class="btn" id="plugin-install">${icon('plug')}<span>Install plugin folder…</span></button></div>
         <p class="sw-note">Plugins live in <code>${esc(settings.plugins_dir)}</code>. See docs/PLUGINS.md for the protocol.</p>`;
+    } else if (section === 'diagnostics') {
+      body.innerHTML = `<div class="sw-card"><ul class="diag" id="diag"><li class="sw-empty">Checking…</li></ul></div>
+        <div class="sw-actions"><button class="btn" id="diag-run">${icon('refresh')}<span>Check again</span></button><button class="btn" id="test-sources">${icon('globe')}<span>Test all sources</span></button><button class="btn" id="diag-copy">${icon('copy')}<span>Copy report</span></button><button class="btn" id="diag-reveal">${icon('reveal')}<span>${IS_MAC ? 'Show settings file in Finder' : 'Show settings file'}</span></button></div>
+        <ul class="health" id="health"></ul>
+        <p class="sw-note">The report has versions, settings locations and check results. It leaves out your API key and proxy password.</p>`;
+      runDiagnostics();
     } else if (section === 'about') {
       body.innerHTML = `<div class="sw-about"><img src="assets/icon-256.png" alt="" width="96" height="96"><h2>Lyrixearch</h2><p class="sw-note" id="about-version"></p>
         <p>Find lyrics for your music, review them, and embed them in the files.</p>
@@ -106,6 +120,18 @@
     }
     $$('[data-icon]', body).forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
   }
+
+  // ───────── diagnostics ─────────
+  let lastReport = [];
+  async function runDiagnostics() {
+    const ul = $('#diag');
+    try {
+      lastReport = await invoke('diagnose');
+      const led = { ok: 'on', warn: 'searching', bad: 'error' };
+      ul.innerHTML = lastReport.map((c) => `<li><i class="led ${led[c.level] || 'on'}" aria-hidden="true"></i><b>${esc(c.name)}</b><span>${esc(c.detail)}</span></li>`).join('');
+    } catch (e) { ul.innerHTML = `<li>${esc(errText(e))}</li>`; }
+  }
+  const mark = (level) => (level === 'ok' ? 'OK  ' : level === 'warn' ? 'WARN' : 'FAIL');
 
   // ───────── saving ─────────
   let saveTimer = 0;
@@ -187,6 +213,15 @@
           const name = (id) => settings.providers.find((p) => p.id === id)?.name || id;
           ul.innerHTML = res.map((r) => `<li><i class="led ${r.ok ? 'on' : 'error'}" aria-hidden="true"></i><b>${esc(name(r.id))}</b><span class="grow">${r.ok ? 'Working' : esc(r.detail)}</span><span class="sw-note">${r.millis} ms</span></li>`).join('');
         } catch (err) { ul.innerHTML = `<li>${esc(errText(err))}</li>`; }
+      }
+      if (e.target.closest('#diag-run')) { runDiagnostics(); return; }
+      if (e.target.closest('#diag-reveal')) { invoke('reveal_config').catch((err) => toast(errText(err), 'bad')); return; }
+      if (e.target.closest('#diag-copy')) {
+        const health = $$('#health li').map((li) => li.textContent.split(/\s+/).join(' ').trim()).filter(Boolean);
+        const lines = ['Lyrixearch diagnostics', ...lastReport.map((c) => `${mark(c.level)} ${c.name}: ${c.detail}`)];
+        if (health.length) lines.push('', 'Sources:', ...health);
+        try { await T.clipboardManager.writeText(lines.join('\n')); toast('Report copied'); } catch { toast('Clipboard unavailable', 'bad'); }
+        return;
       }
       if (e.target.closest('#plugin-install')) {
         const r = await T.dialog.open({ directory: true, title: 'Choose a plugin folder (it contains plugin.toml)' });

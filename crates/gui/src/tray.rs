@@ -94,11 +94,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_window("main") {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
+    crate::background::show_main(app);
 }
 
 /// Update the status line and tooltip. Does nothing when there is no tray (unsupported desktop).

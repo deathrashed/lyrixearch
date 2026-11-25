@@ -4,16 +4,19 @@
   "description": "Main window and the settings window: events, dialogs.",
   "windows": [
     "main",
-    "settings"
+    "settings",
+    "shelf"
   ],
   "webviews": [
     "ui",
-    "settings"
+    "settings",
+    "shelf"
   ],
   "permissions": [
     "core:default",
     "dialog:default",
     "clipboard-manager:allow-read-text",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "notification:default"
   ]
 }

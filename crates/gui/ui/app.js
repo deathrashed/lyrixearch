@@ -654,16 +654,18 @@
     return !r ? [] : Array.isArray(r) ? r : [r];
   }
 
+  /** Add files and folders to the list; returns the ids of the tracks that were new. */
   async function addPaths(paths) {
-    if (!paths.length) return;
+    if (!paths.length) return [];
     toast(`Scanning ${paths.length === 1 ? paths[0].split(/[\\/]/).pop() : paths.length + ' items'}, including subfolders`);
     try {
-      const before = S.tracks.size;
+      const known = new Set(S.tracks.keys());
       const res = await invoke('add_paths', { paths });
       setTracks(res.tracks);
-      const added = res.tracks.length - before;
-      toast(added > 0 ? `Added ${added} track${added === 1 ? '' : 's'}. ${res.stats.missing} missing lyrics.` : 'No new audio files found', added > 0 ? 'good' : '');
-    } catch (e) { toast(errText(e), 'bad', 7000); }
+      const fresh = res.tracks.filter((t) => !known.has(t.id)).map((t) => t.id);
+      toast(fresh.length > 0 ? `Added ${fresh.length} track${fresh.length === 1 ? '' : 's'}. ${res.stats.missing} missing lyrics.` : 'No new audio files found', fresh.length > 0 ? 'good' : '');
+      return fresh;
+    } catch (e) { toast(errText(e), 'bad', 7000); return []; }
   }
 
   // `replace` undefined searches exactly the tracks named; true/false follows the Replace existing switch.
@@ -1136,12 +1138,22 @@
 
     // drops on the window, and files handed over by the OS (dropped on the app icon, "Open with")
     const veil = $('#dropveil');
-    T.event.listen('tauri://drag-enter', () => veil.classList.add('on'));
-    T.event.listen('tauri://drag-over', () => veil.classList.add('on'));
-    T.event.listen('tauri://drag-leave', () => veil.classList.remove('on'));
-    T.event.listen('tauri://drag-drop', (e) => { veil.classList.remove('on'); addPaths(e.payload.paths || []); });
+    // only drops on this webview: the menu bar drop zone is a webview of its own and handles its drops
+    const own = { target: { kind: 'Webview', label: 'ui' } };
+    T.event.listen('tauri://drag-enter', () => veil.classList.add('on'), own);
+    T.event.listen('tauri://drag-over', () => veil.classList.add('on'), own);
+    T.event.listen('tauri://drag-leave', () => veil.classList.remove('on'), own);
+    T.event.listen('tauri://drag-drop', (e) => { veil.classList.remove('on'); addPaths(e.payload.paths || []); }, own);
     const takeOpened = async () => { const p = await invoke('take_pending_open'); if (p.length) addPaths(p); };
     T.event.listen('open-paths', takeOpened);
+    // the menu bar drop zone: "Add" shows the tracks, "Add and fetch" also searches the new ones
+    T.event.listen('shelf-drop', async (e) => {
+      const ids = await addPaths(e.payload.paths || []);
+      if (!e.payload.fetch || !ids.length) return;
+      if (S.progress?.running) { toast('A fetch is already running; the new tracks are in the list'); return; }
+      const todo = ids.filter((id) => S.replace || !S.tracks.get(id)?.has_lyrics);
+      if (todo.length) startSearch(todo, true, S.replace); else toast('The new tracks already have lyrics');
+    });
 
     invoke('list_tracks').then((r) => { setTracks(r.tracks); takeOpened(); });
   }

@@ -75,6 +75,14 @@ pub struct Config {
     pub tag_clean_enabled: bool,
     /// Extra regex removed from titles before searching (applied after the built-in clean-up).
     pub tag_clean_pattern: Option<String>,
+    /// Desktop app: closing the window keeps the app running in the menu bar / tray.
+    pub keep_running: bool,
+    /// Desktop app: a system notification when a fetch finishes while the window is in the background.
+    pub notify_done: bool,
+    /// Stop the computer from sleeping while a fetch runs.
+    pub keep_awake: bool,
+    /// Desktop app, macOS: a drop zone opens under the menu bar icon while files are dragged near it.
+    pub drop_shelf: bool,
 }
 
 impl Default for Config {
@@ -104,6 +112,10 @@ impl Default for Config {
             lastfm_api_key: None,
             tag_clean_enabled: true,
             tag_clean_pattern: None,
+            keep_running: true,
+            notify_done: true,
+            keep_awake: true,
+            drop_shelf: true,
         }
     }
 }
@@ -231,6 +243,10 @@ impl Config {
             "write_tags" => self.write_tags.to_string(),
             "sidecar" => format!("{:?}", self.sidecar).to_ascii_lowercase(),
             "keep_mtime" => self.keep_mtime.to_string(),
+            "keep_running" => self.keep_running.to_string(),
+            "notify_done" => self.notify_done.to_string(),
+            "keep_awake" => self.keep_awake.to_string(),
+            "drop_shelf" => self.drop_shelf.to_string(),
             "overwrite" => self.overwrite.to_string(),
             "remove_section_tags" => self.remove_section_tags.to_string(),
             "prepend_newline" => self.prepend_newline.to_string(),
@@ -261,6 +277,10 @@ impl Config {
             "write_tags" => self.write_tags = b(value)?,
             "sidecar" => self.sidecar = value.parse().map_err(|e: String| anyhow::anyhow!(e))?,
             "keep_mtime" => self.keep_mtime = b(value)?,
+            "keep_running" => self.keep_running = b(value)?,
+            "notify_done" => self.notify_done = b(value)?,
+            "keep_awake" => self.keep_awake = b(value)?,
+            "drop_shelf" => self.drop_shelf = b(value)?,
             "overwrite" => self.overwrite = b(value)?,
             "remove_section_tags" => self.remove_section_tags = b(value)?,
             "prepend_newline" => self.prepend_newline = b(value)?,

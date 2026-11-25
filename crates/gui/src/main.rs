@@ -1,8 +1,11 @@
 // Prevents an extra console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod background;
 mod browser;
 mod player;
+#[cfg(target_os = "macos")]
+mod shelf;
 mod tray;
 
 use anyhow::Context as _;
@@ -283,6 +286,12 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app2.state::<AppState>();
+        let (keep_awake, notify_done) = {
+            let inner = state.0.lock().unwrap();
+            (inner.cfg.keep_awake, inner.cfg.notify_done)
+        };
+        // held until this task ends, whichever way the fetch finishes
+        let _awake = keep_awake.then(background::Awake::start);
         let mut prog = Progress { done: 0, total, found: 0, written: 0, missed: 0, running: true };
         let mut failed = 0usize;
         let cancel_flag = state.0.lock().unwrap().cancel.clone();
@@ -386,12 +395,22 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
         }
         prog.running = false;
         let summary = format!("{} found, {} not found", prog.found, prog.missed);
-        if cancel_flag.load(Ordering::Relaxed) && prog.done < total {
+        let stopped = cancel_flag.load(Ordering::Relaxed) && prog.done < total;
+        if stopped {
             tray::set(&app2, tray::TrayState::Stopped, format!("stopped at {} of {total} · {summary}", prog.done));
         } else if failed > 0 {
             tray::set(&app2, tray::TrayState::Error, format!("{failed} could not be searched · {summary}"));
         } else {
             tray::set(&app2, tray::TrayState::Complete, format!("done · {summary}"));
+        }
+        // a stop is the person's own doing, so it needs no notification
+        if notify_done && !stopped && background::in_background(&app2) {
+            let title = if failed > 0 { "Fetch finished with problems" } else { "Fetch finished" };
+            let mut body = format!("{} of {total} tracks: {summary}", prog.done);
+            if failed > 0 {
+                body.push_str(&format!(", {failed} could not be searched"));
+            }
+            background::notify(&app2, title, &body);
         }
         let _ = app2.emit(
             "session-log",
@@ -903,6 +922,126 @@ fn open_external(url: String) -> CmdResult<()> {
     util::open_url(&url).map_err(err)
 }
 
+// ───────────────────────────── diagnostics (Settings → Diagnostics) ─────────────────────────────
+
+#[derive(Serialize)]
+struct Check {
+    name: &'static str,
+    /// "ok", "warn" or "bad"
+    level: &'static str,
+    detail: String,
+}
+
+fn on_path(tool: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(tool).is_file()))
+}
+
+/// Local checks for a bug report. Nothing here goes over the network ("Test all sources" does that),
+/// and nothing secret is included: the proxy shows only its scheme and host.
+#[tauri::command]
+fn diagnose(app: AppHandle, state: State<'_, AppState>) -> Vec<Check> {
+    use providers::plugin;
+    let ok = |name, detail: String| Check { name, level: "ok", detail };
+    let warn = |name, detail: String| Check { name, level: "warn", detail };
+    let bad = |name, detail: String| Check { name, level: "bad", detail };
+    let (cfg, write_error, engine_error) = {
+        let inner = state.0.lock().unwrap();
+        (inner.cfg.clone(), inner.settings_write_error.clone(), inner.engine.as_ref().err().cloned())
+    };
+    let mut out = vec![ok("Version", format!("Lyrixearch {} · {} {}", app.package_info().version, std::env::consts::OS, std::env::consts::ARCH))];
+
+    let path = Config::path().map(|p| p.display().to_string()).unwrap_or_else(|| "unknown".into());
+    out.push(match write_error {
+        Some(e) => bad("Settings file", format!("{path}: {e}")),
+        None => ok("Settings file", path),
+    });
+
+    let dir = Config::plugins_dir();
+    let (loaded, failed) = plugin::discover(&dir);
+    let ids: Vec<String> = loaded.iter().map(|p| p.manifest().id.clone()).collect();
+    out.push(if !failed.is_empty() {
+        let list = failed
+            .iter()
+            .map(|(p, e)| format!("{}: {e:#}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
+            .collect::<Vec<_>>()
+            .join("; ");
+        bad("Plugins", format!("{} loaded, {} failed ({list})", loaded.len(), failed.len()))
+    } else if loaded.is_empty() {
+        ok("Plugins", "none installed".into())
+    } else {
+        let enabled = ids.iter().filter(|id| cfg.providers.contains(id)).count();
+        ok("Plugins", format!("{} installed ({}), {enabled} enabled", loaded.len(), ids.join(", ")))
+    });
+
+    let known: Vec<String> = providers::builtin_ids().into_iter().chain(ids).collect();
+    let unknown: Vec<&String> = cfg.providers.iter().filter(|p| !known.contains(p)).collect();
+    out.push(match (&engine_error, unknown.is_empty(), cfg.providers.is_empty()) {
+        (Some(e), _, _) => bad("Sources", e.clone()),
+        (_, _, true) => bad("Sources", "none enabled: nothing will be found".into()),
+        (_, false, _) => {
+            warn("Sources", format!("{} enabled; not available: {}", cfg.providers.len(), unknown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
+        }
+        _ => ok("Sources", format!("{} enabled: {}", cfg.providers.len(), cfg.providers.join(", "))),
+    });
+
+    out.push(match cfg.proxy.as_deref().filter(|p| !p.trim().is_empty()) {
+        None => ok("Proxy", "none".into()),
+        Some(p) => match reqwest::Url::parse(p) {
+            Ok(u) => ok("Proxy", format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or("?"), u.port().map(|p| format!(":{p}")).unwrap_or_default())),
+            Err(_) => bad("Proxy", "not a valid address".into()),
+        },
+    });
+
+    out.push(if app.try_state::<tray::Tray>().is_some() {
+        ok("Menu bar icon", if cfg.keep_running { "shown; closing the window keeps the app running".into() } else { "shown".into() })
+    } else {
+        warn("Menu bar icon", "this desktop has no tray, so closing the window quits".into())
+    });
+
+    {
+        use tauri_plugin_notification::{NotificationExt, PermissionState};
+        out.push(match app.notification().permission_state() {
+            _ if !cfg.notify_done => ok("Notifications", "turned off".into()),
+            Ok(PermissionState::Granted) => ok("Notifications", "allowed".into()),
+            Ok(PermissionState::Denied) => warn("Notifications", "blocked in the system settings".into()),
+            Ok(_) => ok("Notifications", "the system asks the first time".into()),
+            Err(e) => warn("Notifications", e.to_string()),
+        });
+    }
+
+    let awake_tool = if cfg!(target_os = "macos") {
+        Some(std::path::Path::new("/usr/bin/caffeinate").is_file())
+    } else if cfg!(target_os = "linux") {
+        Some(on_path("systemd-inhibit"))
+    } else {
+        None
+    };
+    out.push(match (cfg.keep_awake, awake_tool) {
+        (false, _) => ok("Keep awake", "turned off".into()),
+        (true, Some(false)) => warn("Keep awake", "systemd-inhibit not found: the computer may sleep during a fetch".into()),
+        _ => ok("Keep awake", "on while fetching".into()),
+    });
+
+    out.push(ok(
+        "Bot checks",
+        if cfg!(target_os = "linux") {
+            "WebKitGTK, in a hidden window".into()
+        } else if cfg!(windows) {
+            "WebView2, in a hidden window".into()
+        } else {
+            "WebKit, in a hidden window".into()
+        },
+    ));
+    out
+}
+
+/// Show the settings file in Finder / the file manager.
+#[tauri::command]
+fn reveal_config() -> CmdResult<()> {
+    let path = Config::path().context("no settings location").map_err(err)?;
+    util::reveal(&path).map_err(err)
+}
+
 // ───────────────────────────── cover art, file manager, sidecar files ─────────────────────────────
 
 fn folder_cover(dir: &std::path::Path) -> Option<Vec<u8>> {
@@ -1333,6 +1472,17 @@ fn main() {
     }));
 
     tauri::Builder::default()
+        // Linux and Windows: a second launch (a file dropped on the launcher, "Open with") hands its
+        // files to the running app instead of opening another window. macOS does this itself.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let paths: Vec<String> = argv.iter().skip(1).filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists()).cloned().collect();
+            if !paths.is_empty() {
+                app.state::<AppState>().0.lock().unwrap().pending_open.extend(paths);
+                let _ = app.emit("open-paths", ());
+            }
+            background::show_main(app);
+        }))
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state)
@@ -1358,6 +1508,8 @@ fn main() {
             browser_reload,
             browser_selection,
             open_settings,
+            diagnose,
+            reveal_config,
             set_ui_scale,
             web_search_url,
             open_external,
@@ -1399,6 +1551,11 @@ fn main() {
             if let Err(e) = tray::install(app.handle()) {
                 // some Linux desktops have no tray; the app works the same without it
                 eprintln!("lyrixearch: no tray icon: {e}");
+            } else {
+                #[cfg(target_os = "macos")]
+                if let Err(e) = shelf::install(app.handle()) {
+                    eprintln!("lyrixearch: no menu bar drop zone: {e}");
+                }
             }
             let window = WindowBuilder::new(app, "main")
                 .title("Lyrixearch")
@@ -1441,7 +1598,7 @@ fn main() {
                             Some(ui) => {
                                 // Deliver a drop exactly as the OS layer would: through the UI's drag-drop listener.
                                 let dir = std::env::var("LYRIXEARCH_SELFTEST_DIR").unwrap_or_else(|_| "/tmp/lf-test".into());
-                                let _ = h.emit("tauri://drag-drop", serde_json::json!({ "paths": [dir], "position": { "x": 0, "y": 0 } }));
+                                let _ = h.emit_to("ui", "tauri://drag-drop", serde_json::json!({ "paths": [dir], "position": { "x": 0, "y": 0 } }));
                                 if let Err(e) =
                                     ui.eval(SELFTEST_JS.replace("__UA_URL__", std::env::var("LYRIXEARCH_SELFTEST_UA_URL").unwrap_or_default().as_str()))
                                 {
@@ -1465,6 +1622,16 @@ fn main() {
             // The UI webview always fills the window; the browser panel is positioned by the UI.
             let handle = app.handle().clone();
             window.on_window_event(move |ev| {
+                // with "keep running" on, closing the window leaves the app in the menu bar / tray
+                // (only when the tray icon exists, or the window could not be brought back)
+                if let WindowEvent::CloseRequested { api, .. } = ev {
+                    let keep = handle.state::<AppState>().0.lock().unwrap().cfg.keep_running;
+                    if keep && handle.try_state::<tray::Tray>().is_some() {
+                        api.prevent_close();
+                        background::hide_main(&handle);
+                        return;
+                    }
+                }
                 // the hidden check window must not keep the app alive once the main window is gone
                 if let WindowEvent::Destroyed = ev {
                     handle.exit(0);
@@ -1492,16 +1659,21 @@ fn main() {
         .expect("error while building Lyrixearch")
         .run(|app, event| {
             // macOS: a folder or file dropped on the Dock/Finder icon, or "Open with", arrives here.
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
                 let paths: Vec<String> = urls.iter().filter_map(|u| u.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect();
                 if !paths.is_empty() {
-                    eprintln!("OPENED {paths:?}");
                     app.state::<AppState>().0.lock().unwrap().pending_open.extend(paths);
                     let _ = app.emit("open-paths", ());
+                    background::show_main(app);
                 }
             }
-            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            // macOS: clicking the Dock icon while the window is hidden brings it back
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = &event {
+                background::show_main(app);
+            }
+            #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
 }

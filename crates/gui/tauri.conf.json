@@ -11,7 +11,8 @@
     "windows": [],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost"
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
@@ -35,15 +36,129 @@
     },
     "linux": {
       "deb": {
-        "depends": ["libasound2 | libasound2t64", "libayatana-appindicator3-1"]
+        "depends": [
+          "libasound2 | libasound2t64",
+          "libayatana-appindicator3-1"
+        ],
+        "desktopTemplate": "linux/lyrixearch.desktop"
       },
       "rpm": {
-        "depends": ["alsa-lib", "libayatana-appindicator-gtk3"]
+        "depends": [
+          "alsa-lib",
+          "libayatana-appindicator-gtk3"
+        ],
+        "desktopTemplate": "linux/lyrixearch.desktop"
       }
     },
     "publisher": "Lyrixearch contributors",
     "copyright": "Copyright (c) Lyrixearch contributors. MIT License.",
     "shortDescription": "Find lyrics for your music and embed them in the files",
-    "longDescription": "Lyrixearch searches many lyrics sources, matches them to your tracks, and embeds them in the audio files. Drop a folder, review, embed."
+    "longDescription": "Lyrixearch searches many lyrics sources, matches them to your tracks, and embeds them in the audio files. Drop a folder, review, embed.",
+    "fileAssociations": [
+      {
+        "ext": [
+          "mp3"
+        ],
+        "mimeType": "audio/mpeg",
+        "name": "MP3 audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "flac"
+        ],
+        "mimeType": "audio/flac",
+        "name": "FLAC audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "m4a",
+          "mp4",
+          "aac"
+        ],
+        "mimeType": "audio/mp4",
+        "name": "MPEG-4 audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "ogg",
+          "oga"
+        ],
+        "mimeType": "audio/ogg",
+        "name": "Ogg audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "opus"
+        ],
+        "mimeType": "audio/opus",
+        "name": "Opus audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "wav"
+        ],
+        "mimeType": "audio/x-wav",
+        "name": "WAVE audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "aif",
+          "aiff"
+        ],
+        "mimeType": "audio/x-aiff",
+        "name": "AIFF audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "wv"
+        ],
+        "mimeType": "audio/x-wavpack",
+        "name": "WavPack audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "ape"
+        ],
+        "mimeType": "audio/x-ape",
+        "name": "Monkey's Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "wma"
+        ],
+        "mimeType": "audio/x-ms-wma",
+        "name": "Windows Media audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [],
+        "contentTypes": [
+          "public.folder"
+        ],
+        "mimeType": "inode/directory",
+        "name": "Folder",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
   }
 }

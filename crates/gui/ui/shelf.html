@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lyrixearch</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* the window is transparent; this panel is what shows, shaped like a menu bar dropdown */
+    html, body { background: transparent !important; overflow: hidden; }
+    .shelf { position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px;
+      background: color-mix(in oklab, var(--surface) 94%, transparent); border: 1px solid var(--border-strong); border-radius: 12px;
+      -webkit-user-select: none; user-select: none; cursor: default; }
+    .zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1.5px dashed var(--border-strong);
+      border-radius: 8px; color: var(--muted); text-align: center; padding: 8px; transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out; }
+    .zone svg { width: 22px; height: 22px; }
+    .zone b { color: var(--fg); font-weight: 500; }
+    .zone span { font-size: var(--text-xs); }
+    .zone.hot { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--fg); }
+    .zone.hot svg { color: var(--accent-text); }
+    .done { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; gap: 8px; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--border-strong); font-weight: 500; }
+    body.dropped .done { display: flex; }
+    @media (prefers-reduced-motion: reduce) { .zone { transition: none; } }
+  </style>
+</head>
+<body>
+  <div class="shelf" aria-label="Drop music here">
+    <div class="zone" id="z-add"><span data-icon="plus"></span><b>Add</b><span>Open in Lyrixearch</span></div>
+    <div class="zone" id="z-fetch"><span data-icon="bolt"></span><b>Add and fetch</b><span>Find lyrics in the background</span></div>
+  </div>
+  <div class="done" role="status"><i class="led on" aria-hidden="true"></i><span id="done-text">Added</span></div>
+  <script src="shared.js"></script>
+  <script>
+    (() => {
+      const T = window.__TAURI__;
+      const { icon, applyAppearance } = window.LX;
+      applyAppearance();
+      document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
+      const zones = { add: document.getElementById('z-add'), fetch: document.getElementById('z-fetch') };
+      T.event.listen('shelf-hover', (e) => {
+        document.body.classList.remove('dropped');
+        for (const [k, el] of Object.entries(zones)) el.classList.toggle('hot', k === e.payload);
+      });
+      T.event.listen('shelf-dropped', (e) => {
+        document.getElementById('done-text').textContent = e.payload ? 'Added, fetching lyrics' : 'Added';
+        document.body.classList.add('dropped');
+      });
+      window.addEventListener('storage', () => applyAppearance());
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyAppearance());
+    })();
+  </script>
+</body>
+</html>
