@@ -36,7 +36,6 @@
   </picture></a>
 </p>
 
-  </p>
   <p align="center">
     <a href="#quick-start">Quick Start</a> |
     <a href="#install">Install</a> |
@@ -52,11 +51,15 @@
   </p>
 </div>
 
-
+<p align="center">
+  <img src="assets/screenshot-app.png" width="900" alt="The Lyrixearch desktop app: a track list with a coloured lamp per track (four amber 'missing', one green 'embedded'), and the selected track's player and embedded lyrics in the inspector on the right.">
+  <br>
+  <sub>The desktop app on macOS. Demo folder of silent test tracks; the selected track's lyrics are demo text.</sub>
+</p>
 
 ---
 
-## <img src="https://api.iconify.design/mdi:rocket-launch-outline.svg?color=%235fe27f" height="22" alt=""> Quick Start
+## <img src="https://api.iconify.design/mdi/rocket-launch-outline.svg?color=%235fe27f" height="22" alt=""> Quick Start
 
 ```bash
 # 1. get it: build from source (or grab a build from Releases)
@@ -75,7 +78,7 @@ lyrixearch-gui                           # desktop app
 > [!TIP]
 > Run `lyrixearch` with no arguments for the **terminal UI**. Searching never writes by itself there: review the results, then press `w`.
 
-## <img src="https://api.iconify.design/mdi:download.svg?color=%235fe27f" height="22" alt=""> Install
+## <img src="https://api.iconify.design/mdi/download.svg?color=%235fe27f" height="22" alt=""> Install
 
 Download a build from [Releases](../../releases) (macOS, Windows, Linux), or build it yourself below.
 
@@ -88,31 +91,31 @@ To run the CLI from anywhere, link it onto your `PATH`:
 ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 ```
 
-## <img src="https://api.iconify.design/mdi:application-outline.svg?color=%235fe27f" height="22" alt=""> App
+## <img src="https://api.iconify.design/mdi/application-outline.svg?color=%235fe27f" height="22" alt=""> App
 
 | | Feature |
 | --- | --- |
-| <img src="https://api.iconify.design/mdi:folder-multiple-plus-outline.svg?color=%235fe27f" height="20" alt=""> | **Add music** by dropping folders or files on the window (or the app icon on macOS), **Files** / **Folder**, or the command line. Every subfolder is scanned. **Library** remembers folders and re-scans them in one go. |
-| <img src="https://api.iconify.design/mdi:playlist-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Tabs filter by **All, Missing, Embedded, Found, NA, Error**; select-all, **Search**, **Embed**, **Files**, **More** and **Drop embedded** act on the selection. |
-| <img src="https://api.iconify.design/mdi:lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Find &amp; embed all**: the green top-bar button searches every track currently listed and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
-| <img src="https://api.iconify.design/mdi:file-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
-| <img src="https://api.iconify.design/mdi:play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Details**: compact player, then **Lyrics**, **Edit**, **Web** and **Info**. Copy, paste from clipboard, edit, reveal, remove. Buttons can show icons, text or both. |
-| <img src="https://api.iconify.design/mdi:web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. |
+| <img src="https://api.iconify.design/mdi/folder-multiple-plus-outline.svg?color=%235fe27f" height="20" alt=""> | **Add music** by dropping folders or files on the window (or the app icon on macOS), **Files** / **Folder**, or the command line. Every subfolder is scanned. **Library** remembers folders and re-scans them in one go. |
+| <img src="https://api.iconify.design/mdi/playlist-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Tabs filter by **All, Missing, Embedded, Found, NA, Error**; select-all, **Search**, **Embed**, **Files**, **More** and **Drop embedded** act on the selection. |
+| <img src="https://api.iconify.design/mdi/lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Find &amp; embed all**: the green top-bar button searches every track currently listed and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
+| <img src="https://api.iconify.design/mdi/file-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
+| <img src="https://api.iconify.design/mdi/play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Details**: compact player, then **Lyrics**, **Edit**, **Web** and **Info**. Copy, paste from clipboard, edit, reveal, remove. Buttons can show icons, text or both. |
+| <img src="https://api.iconify.design/mdi/web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. On Linux all results open in your browser. |
 
 <details>
 <summary><strong>State colors</strong></summary>
 
 | Lamp | Meaning |
 | --- | --- |
-| <img src="https://api.iconify.design/mdi:circle.svg?color=%235fe27f" height="12" alt=""> green | lyrics embedded |
-| <img src="https://api.iconify.design/mdi:circle.svg?color=%23e0b040" height="12" alt=""> amber | missing lyrics |
-| <img src="https://api.iconify.design/mdi:circle.svg?color=%2356b4f0" height="12" alt=""> blue | found, not embedded yet |
-| <img src="https://api.iconify.design/mdi:circle.svg?color=%23b88af0" height="12" alt=""> purple | **NA**: no source had them |
-| <img src="https://api.iconify.design/mdi:circle.svg?color=%23f0675a" height="12" alt=""> red | error |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%235fe27f" height="12" alt=""> green | lyrics embedded |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%23e0b040" height="12" alt=""> amber | missing lyrics |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%2356b4f0" height="12" alt=""> blue | found, not embedded yet |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%23b88af0" height="12" alt=""> purple | **NA**: no source had them |
+| <img src="https://api.iconify.design/mdi/circle.svg?color=%23f0675a" height="12" alt=""> red | error |
 
 </details>
 
-## <img src="https://api.iconify.design/mdi:console.svg?color=%235fe27f" height="22" alt=""> TUI
+## <img src="https://api.iconify.design/mdi/console.svg?color=%235fe27f" height="22" alt=""> TUI
 
 Run `lyrixearch` with no arguments.
 
@@ -145,7 +148,7 @@ The header counts files, with lyrics, left to search and NA; while searching, th
 
 </details>
 
-## <img src="https://api.iconify.design/mdi:database-search-outline.svg?color=%235fe27f" height="22" alt=""> Sources
+## <img src="https://api.iconify.design/mdi/database-search-outline.svg?color=%235fe27f" height="22" alt=""> Sources
 
 | Source | Notes |
 | --- | --- |
@@ -162,15 +165,15 @@ The header counts files, with lyrics, left to search and NA; while searching, th
 
 Per track, sources are tried in order, each with one time budget for the track; sources that keep failing, or that ask to slow down, are skipped for a while. A title that finds nothing is retried without trailing brackets, and a "Various Artists" track with its album artist. Tracks whose names are placeholders ("Track 01", "Unknown Artist") are only matched against lyrics files next to them. With a Last.fm API key set (`lastfm_api_key`), misspelled artist and title names are corrected before searching. Ten tracks are searched at once by default. Sources that show a captcha or browser check (DuckDuckGo, and any page behind Cloudflare) open a verification window in the desktop app; the cookies from it are reused for the rest of the search. Not yet included: AZLyrics, Letras and Uta-Net (all three sit behind bot checks), and Musixmatch (needs a private signed token).
 
-## <img src="https://api.iconify.design/mdi:puzzle-outline.svg?color=%235fe27f" height="22" alt=""> Plugins
+## <img src="https://api.iconify.design/mdi/puzzle-outline.svg?color=%235fe27f" height="22" alt=""> Plugins
 
 A plugin is any script that speaks a small JSON protocol over stdin/stdout. See [docs/PLUGINS.md](docs/PLUGINS.md). `plugins/metallum` is an example; it needs the separate `metallum` command-line tool.
 
-## <img src="https://api.iconify.design/mdi:tag-text-outline.svg?color=%235fe27f" height="22" alt=""> Functionality
+## <img src="https://api.iconify.design/mdi/tag-text-outline.svg?color=%235fe27f" height="22" alt=""> Functionality
 
 Plain lyrics go to ID3v2 `USLT`, MP4 `©lyr`, Vorbis/FLAC `LYRICS`, ASF `WM/Lyrics` and APE; synced lyrics also go to ID3v2 `SYLT` (MP3) and `SYNCEDLYRICS` (FLAC, Ogg, Opus), through [`lofty`](https://crates.io/crates/lofty). Every other tag field and frame is kept as it was, and file modification times are preserved by default. Options: sidecar `.lrc`/`.txt` (an existing sidecar is only replaced with **Replace existing** on), synced lyrics only, title clean-up rules, strip `[Chorus]`-style headers, leading blank line. Found lyrics that have not been embedded yet are kept between runs. Settings live in a TOML file (`lyrixearch config path`) and are all editable in the app.
 
-## <img src="https://api.iconify.design/mdi:file-tree.svg?color=%235fe27f" height="22" alt=""> Structure
+## <img src="https://api.iconify.design/mdi/file-tree.svg?color=%235fe27f" height="22" alt=""> Structure
 
 ```text
 lyrixearch/
@@ -187,7 +190,7 @@ lyrixearch/
 └── .github/workflows/   # CI and release builds
 ```
 
-## <img src="https://api.iconify.design/mdi:hammer-wrench.svg?color=%235fe27f" height="22" alt=""> Build
+## <img src="https://api.iconify.design/mdi/hammer-wrench.svg?color=%235fe27f" height="22" alt=""> Build
 
 You need a recent stable Rust toolchain.
 
@@ -220,9 +223,14 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
 
 ### Status
 
-CI builds, lints and tests on macOS, Windows and Linux. **Hands-on testing has so far been done on macOS only.** The in-window web panel uses Tauri's unstable multi-webview support, the part most likely to behave differently on Linux and Windows; the "open in browser" button always works. Bug reports with the OS and version are welcome.
+CI builds, lints and tests on macOS, Windows and Linux. Hands-on testing covers **macOS**, and **Linux** on CachyOS with KDE Plasma (Wayland): adding a folder, live search, embedding from `.lrc`, cover art and the player all work there.
 
-## <img src="https://api.iconify.design/mdi:scale-balance.svg?color=%235fe27f" height="22" alt=""> Contributing
+- **Linux:** the Web tab opens results in your browser instead of inside the window, because Tauri cannot place a page inside the window on Linux. The verification window for captcha-protected sources opens but has not yet been seen to pass a check there.
+- **Windows:** built by CI, not yet tested by hand.
+
+Bug reports with the OS and version are welcome.
+
+## <img src="https://api.iconify.design/mdi/scale-balance.svg?color=%235fe27f" height="22" alt=""> Contributing
 
 Issues and pull requests are welcome. Run `cargo fmt`, `cargo clippy --workspace --all-targets` and `cargo test --workspace` first; CI runs the same checks.
 
@@ -231,7 +239,7 @@ Issues and pull requests are welcome. Run `cargo fmt`, `cargo clippy --workspace
 
 Not affiliated with any other lyrics tool or service.
 
-## <a href="https://opensource.org/license/MIT"><img src="https://spoo.me/pAIMCtr" height="20"></a> License
+## <a href="https://opensource.org/license/MIT"><img src="https://spoo.me/pAIMCtr" height="20" alt=""></a> License
 
 <div align="center">
 
