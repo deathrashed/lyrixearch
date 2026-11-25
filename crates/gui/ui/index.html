@@ -215,36 +215,7 @@
     </div>
   </div>
 
-  <div class="modal" id="settings" hidden>
-    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header>
-        <h2 id="settings-title">Settings</h2>
-        <div class="stabs" id="stabs" role="tablist" aria-label="Settings sections">
-          <button role="tab" data-s="providers" aria-selected="true">Sources</button>
-          <button role="tab" data-s="general" aria-selected="false">General</button>
-          <button role="tab" data-s="plugins" aria-selected="false">Plugins</button>
-        </div>
-        <button class="btn icon sm ghost" id="settings-close" title="Close" aria-label="Close settings"><span data-icon="x"></span></button>
-      </header>
-      <div class="sbody">
-        <div class="spane" id="s-providers">
-          <p class="hint" style="margin:0">Sources are tried from the top for each track and the first match wins. Slow or failing sources are skipped for a while automatically.</p>
-          <ul class="plist" id="provider-list"></ul>
-        </div>
-        <div class="spane" id="s-general" hidden>
-          <div class="form" id="general-form"></div>
-        </div>
-        <div class="spane" id="s-plugins" hidden>
-          <p class="hint" style="margin:0">Plugins are scripts that act as extra sources, such as the bundled metallum plugin. They live in <code id="plugins-dir"></code>.</p>
-          <div class="actions" style="margin-top:12px"><button class="btn primary" id="plugin-install"><span data-icon="plug"></span><span>Install plugin folder</span></button><button class="btn" id="plugin-test"><span data-icon="refresh"></span><span>Test all sources</span></button></div>
-          <ul class="plist" id="plugin-list"></ul>
-          <ul class="health" id="health-list"></ul>
-        </div>
-      </div>
-      <footer><span class="mono" id="config-path"></span><button class="btn primary" id="settings-save">Save</button></footer>
-    </div>
-  </div>
-
+  <script src="shared.js"></script>
   <script src="mock.js"></script>
   <script src="app.js"></script>
 </body>

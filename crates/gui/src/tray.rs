@@ -23,6 +23,39 @@ pub enum TrayState {
 pub struct Tray {
     icon: TrayIcon,
     now: Mutex<(TrayState, String)>,
+    /// Monochrome mark instead of the coloured status lamp (Settings → Appearance).
+    mono: std::sync::atomic::AtomicBool,
+}
+
+/// The plain "LS" mark: a template image on macOS (the system tints it like the other menu-bar icons),
+/// white or dark letters elsewhere. The state is then only in the tooltip.
+fn mono_image(dark_panel: bool) -> Option<Image<'static>> {
+    let bytes: &'static [u8] = if cfg!(target_os = "macos") {
+        include_bytes!("../icons/tray/mono-template-44.png")
+    } else if dark_panel {
+        include_bytes!("../icons/tray/mono-dark-32.png")
+    } else {
+        include_bytes!("../icons/tray/mono-light-32.png")
+    };
+    Image::from_bytes(bytes).ok()
+}
+
+fn current_image(tray: &Tray, state: TrayState, dark: bool) -> Option<Image<'static>> {
+    if tray.mono.load(std::sync::atomic::Ordering::Relaxed) {
+        mono_image(dark)
+    } else {
+        image(state, dark)
+    }
+}
+
+/// Switch between the coloured status icon and the monochrome mark.
+pub fn set_style(app: &AppHandle, mono: bool) {
+    let Some(tray) = app.try_state::<Tray>() else { return };
+    tray.mono.store(mono, std::sync::atomic::Ordering::Relaxed);
+    let state = tray.now.lock().unwrap().0;
+    let _ = tray.icon.set_icon(current_image(&tray, state, dark_panel(app)));
+    #[cfg(target_os = "macos")]
+    let _ = tray.icon.set_icon_as_template(mono);
 }
 
 /// PNG for a state on a dark or light panel. macOS gets the 44 px image (22 pt at 2x); other systems
@@ -97,7 +130,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon_as_template(false);
     }
     let icon = builder.build(app)?;
-    app.manage(Tray { icon, now: Mutex::new((TrayState::Idle, tooltip.into())) });
+    app.manage(Tray { icon, now: Mutex::new((TrayState::Idle, tooltip.into())), mono: std::sync::atomic::AtomicBool::new(false) });
     Ok(())
 }
 
@@ -120,9 +153,12 @@ pub fn set(app: &AppHandle, state: TrayState, tooltip: impl Into<String>) {
         changed
     };
     if changed {
-        let _ = tray.icon.set_icon(image(state, dark_panel(app)));
+        let mono = tray.mono.load(std::sync::atomic::Ordering::Relaxed);
+        let _ = tray.icon.set_icon(current_image(&tray, state, dark_panel(app)));
         #[cfg(target_os = "macos")]
-        let _ = tray.icon.set_icon_as_template(false);
+        let _ = tray.icon.set_icon_as_template(mono);
+        #[cfg(not(target_os = "macos"))]
+        let _ = mono;
     }
     let _ = tray.icon.set_tooltip(Some(&tooltip));
 }
@@ -131,5 +167,5 @@ pub fn set(app: &AppHandle, state: TrayState, tooltip: impl Into<String>) {
 pub fn refresh_theme(app: &AppHandle) {
     let Some(tray) = app.try_state::<Tray>() else { return };
     let state = tray.now.lock().unwrap().0;
-    let _ = tray.icon.set_icon(image(state, dark_panel(app)));
+    let _ = tray.icon.set_icon(current_image(&tray, state, dark_panel(app)));
 }

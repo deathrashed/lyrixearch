@@ -7,49 +7,7 @@
   const ROW_H = 72;
   const AUDIO_EXT = ['mp3', 'flac', 'm4a', 'mp4', 'aac', 'ogg', 'oga', 'opus', 'wma', 'wav', 'aif', 'aiff', 'ape', 'wv'];
 
-  // ───────────────────────── icons: Lucide (24 grid, 2px stroke, round caps), inlined so the app works offline ─────────────────────────
-  const ICONS = {
-    search: '<circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" />',
-    plus: '<path d="M5 12h14" /> <path d="M12 5v14" />',
-    refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" />',
-    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <polyline points="7 10 12 15 17 10" /> <line x1="12" x2="12" y1="15" y2="3" />',
-    export: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <polyline points="17 8 12 3 7 8" /> <line x1="12" x2="12" y1="3" y2="15" />',
-    stop: '<rect width="18" height="18" x="3" y="3" rx="2" />',
-    moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />',
-    sun: '<circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" />',
-    sliders: '<line x1="21" x2="14" y1="4" y2="4" /> <line x1="10" x2="3" y1="4" y2="4" /> <line x1="21" x2="12" y1="12" y2="12" /> <line x1="8" x2="3" y1="12" y2="12" /> <line x1="21" x2="16" y1="20" y2="20" /> <line x1="12" x2="3" y1="20" y2="20" /> <line x1="14" x2="14" y1="2" y2="6" /> <line x1="8" x2="8" y1="10" y2="14" /> <line x1="16" x2="16" y1="18" y2="22" />',
-    folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />',
-    library: '<path d="m16 6 4 14" /> <path d="M12 6v14" /> <path d="M8 8v12" /> <path d="M4 4v16" />',
-    reveal: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />',
-    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /> <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />',
-    trash: '<path d="M3 6h18" /> <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /> <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /> <line x1="10" x2="10" y1="11" y2="17" /> <line x1="14" x2="14" y1="11" y2="17" />',
-    globe: '<circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" />',
-    check: '<path d="M20 6 9 17l-5-5" />',
-    x: '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
-    left: '<path d="m15 18-6-6 6-6" />',
-    right: '<path d="m9 18 6-6-6-6" />',
-    plug: '<path d="M12 22v-5" /> <path d="M9 8V2" /> <path d="M15 8V2" /> <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />',
-    up: '<path d="m18 15-6-6-6 6" />',
-    down: '<path d="m6 9 6 6 6-6" />',
-    play: '<polygon points="6 3 20 12 6 21 6 3" />',
-    pause: '<rect x="14" y="4" width="4" height="16" rx="1" /> <rect x="6" y="4" width="4" height="16" rx="1" />',
-    copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2" /> <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />',
-    paste: '<path d="M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z" /> <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2M16 4h2a2 2 0 0 1 2 2v2M11 14h10" /> <path d="m17 10 4 4-4 4" />',
-    fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" />',
-    filePlus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M9 15h6" /> <path d="M12 18v-6" />',
-    edit: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" />',
-    external: '<path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />',
-    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /> <circle cx="12" cy="7" r="4" />',
-    note: '<path d="M9 18V5l12-2v13" /> <circle cx="6" cy="18" r="3" /> <circle cx="18" cy="16" r="3" />',
-    phone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2" /> <path d="M12 18h.01" />',
-    rows: '<rect width="18" height="18" x="3" y="3" rx="2" /> <path d="M21 9H3" /> <path d="M21 15H3" />',
-    grid: '<rect width="7" height="7" x="3" y="3" rx="1" /> <rect width="7" height="7" x="14" y="3" rx="1" /> <rect width="7" height="7" x="14" y="14" rx="1" /> <rect width="7" height="7" x="3" y="14" rx="1" />',
-    type: '<polyline points="4 7 4 4 20 4 20 7" /> <line x1="9" x2="15" y1="20" y2="20" /> <line x1="12" x2="12" y1="4" y2="20" />',
-    bolt: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />',
-    more: '<circle cx="12" cy="12" r="1" /> <circle cx="19" cy="12" r="1" /> <circle cx="5" cy="12" r="1" />',
-    listx: '<path d="M11 12H3" /> <path d="M16 6H3" /> <path d="M16 18H3" /> <path d="m19 10-4 4" /> <path d="m15 10 4 4" />',
-  };
-  const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+  const { ICONS, icon, esc, errText, store } = window.LX;
   const paintIcons = (root = document) => $$('[data-icon]', root).forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
 
   // ───────────────────────── state ─────────────────────────
@@ -64,10 +22,7 @@
     kind: 'auto', replace: false, pop: null, fileScope: 'sel',
   };
 
-  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const errText = (e) => (typeof e === 'string' ? e : e?.message || JSON.stringify(e));
   const fmtTime = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-  const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage may be unavailable */ } } };
 
   const logLines = [];
   let logFrame = 0;
@@ -466,7 +421,7 @@
   const EXTERNAL_ENGINES = new Set(['google_ai']);
 
   // vh lets the backend line the page up with this viewport (the window can be taller, e.g. a macOS title bar)
-  const slotRect = () => { const r = $('#webslot').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, vh: innerHeight }; };
+  const slotRect = () => { const r = $('#webslot').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, vh: innerHeight, scale: Number(store.get('lf-scale')) || 1 }; };
   // false on Linux, where pages open in the person's browser instead of inside the window
   const canEmbed = () => S.settings?.embedded_browser !== false;
   const browserWanted = () => canEmbed() && S.tab === 'web' && !!activeTrack() && !S.modalOpen && !S.popOpen && !S.dragging;
@@ -775,167 +730,15 @@
     } catch (e) { toast(errText(e), 'bad', 7000); }
   }
 
-  // ───────────────────────── settings ─────────────────────────
-  let draft = null;
-
-  async function openSettings() {
-    S.settings = await invoke('get_settings');
-    draft = JSON.parse(JSON.stringify(S.settings.config));
-    renderSettings();
-    openSheet($('#settings'), '#stabs [aria-selected="true"]');
-  }
-  const closeSettings = () => closeSheet($('#settings'));
-
-  function providerOrder() {
-    const cat = new Map(S.settings.providers.map((p) => [p.id, p]));
-    const on = draft.providers.map((id) => ({ ...(cat.get(id) || { id, name: id, note: 'Source unavailable' }), enabled: true }));
-    const off = S.settings.providers.filter((p) => !draft.providers.includes(p.id)).map((p) => ({ ...p, enabled: false }));
-    return [...on, ...off];
-  }
-
-  function renderSettings() {
-    $('#provider-list').innerHTML = providerOrder().map((p, i, arr) => `<li class="${p.enabled ? '' : 'off'}" data-id="${esc(p.id)}">
-      <div class="ord"><button data-mv="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 || !p.enabled ? 'disabled' : ''}>${icon('up')}</button><button data-mv="1" aria-label="Move ${esc(p.name)} down" ${!p.enabled || arr[i + 1]?.enabled === false || i === arr.length - 1 ? 'disabled' : ''}>${icon('down')}</button></div>
-      <div class="grow"><div class="nm">${esc(p.name)} ${p.kind === 'plugin' ? '<span class="tag lit">Plugin</span>' : ''}</div><div class="nt">${esc(p.note)}</div></div>
-      <label class="switch"><input type="checkbox" aria-label="Use ${esc(p.name)}" ${p.enabled ? 'checked' : ''}><i></i></label></li>`).join('');
-
-    const g = draft;
-    const row = (k, lbl, sub, ctl) => `<div class="frow"><label class="lbl" for="f-${k}"><b>${lbl}</b><span>${sub}</span></label>${ctl}</div>`;
-    const sw = (k) => `<span class="switch"><input id="f-${k}" type="checkbox" data-k="${k}" ${g[k] ? 'checked' : ''}><i></i></span>`;
-    const rng = (k, min, max, step) => `<span style="display:flex;gap:12px;align-items:center"><input id="f-${k}" type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${g[k]}"><b class="mono" data-v="${k}" style="min-width:36px;text-align:right">${g[k]}</b></span>`;
-    const sel = (k, opts) => `<select id="f-${k}" data-k="${k}">${k === 'search_engine' ? engineOptions(opts, g[k]) : opts.map((o) => `<option ${g[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-    $('#general-form').innerHTML = [
-      row('concurrency', 'Simultaneous searches', 'Tracks searched at the same time', rng('concurrency', 1, 20, 1)),
-      row('provider_timeout_secs', 'Source timeout', 'Seconds to wait for one source before moving on', rng('provider_timeout_secs', 2, 30, 1)),
-      row('min_score', 'Match strictness', 'Minimum similarity for a result to be accepted', rng('min_score', 0.5, 1, 0.05)),
-      row('synced_only', 'Synced lyrics only', 'Accept results with timed lines', sw('synced_only')),
-      row('tag_clean_enabled', 'Clean track titles', 'Remove common edition and release labels before searching', sw('tag_clean_enabled')),
-      row('tag_clean_pattern', 'Extra title cleanup', 'Optional regular expression to remove from track titles',
-        `<div class="setting-field"><input id="f-tag_clean_pattern" type="text" data-k="tag_clean_pattern" value="${esc(g.tag_clean_pattern || '')}" spellcheck="false" aria-describedby="tag-clean-error"><span id="tag-clean-error" class="setting-error" role="alert"></span></div>`),
-      row('lastfm_api_key', 'Last.fm API key', 'Optional, enables artist and title corrections',
-        '<input id="f-lastfm_api_key" type="password" data-k="lastfm_api_key" autocomplete="off" spellcheck="false">'),
-      row('write_tags', 'Write lyrics into the files', 'Embed in the audio tags (ID3 USLT, Vorbis, MP4)', sw('write_tags')),
-      row('sidecar', 'Also save a sidecar file', 'A .lrc or .txt next to the track', sel('sidecar', ['off', 'auto', 'lrc', 'txt'])),
-      row('overwrite', 'Replace existing lyrics', 'Search and overwrite even when a track already has lyrics', sw('overwrite')),
-      row('keep_mtime', 'Keep file modification date', 'Restore the date after tagging', sw('keep_mtime')),
-      row('remove_section_tags', 'Remove section headers', 'Drop lines such as [Chorus] or [Solo]', sw('remove_section_tags')),
-      row('prepend_newline', 'Blank line at the start', 'Insert an empty first line', sw('prepend_newline')),
-      row('search_engine', 'Web search engine', 'Used by the Web tab', sel('search_engine', S.settings.engines)),
-      row('proxy', 'Proxy', 'http:// or socks5://, empty for none', `<input id="f-proxy" type="text" data-k="proxy" value="${esc(g.proxy || '')}" placeholder="none">`),
-    ].join('');
-    $('#f-lastfm_api_key').value = g.lastfm_api_key || '';
-
-    const plugins = S.settings.providers.filter((p) => p.kind === 'plugin');
-    $('#plugin-list').innerHTML = plugins.length
-      ? plugins.map((p) => `<li><div class="grow"><div class="nm">${esc(p.name)}</div><div class="nt">${esc(p.id)} · ${esc(p.note)}</div></div><span class="tag ${draft.providers.includes(p.id) ? 'lit' : ''}">${draft.providers.includes(p.id) ? 'Enabled' : 'Disabled'}</span></li>`).join('')
-      : '<li><div class="grow nt">No plugins installed yet.</div></li>';
-    $('#plugins-dir').textContent = S.settings.plugins_dir;
-    $('#config-path').textContent = S.settings.config_path;
-  }
-
-  function wireSettings() {
-    $('#provider-list').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-mv]');
-      if (!btn || btn.disabled) return;
-      const id = btn.closest('li').dataset.id;
-      const i = draft.providers.indexOf(id);
-      const j = i + Number(btn.dataset.mv);
-      if (i < 0 || j < 0 || j >= draft.providers.length) return;
-      [draft.providers[i], draft.providers[j]] = [draft.providers[j], draft.providers[i]];
-      renderSettings();
-      $(`#provider-list li[data-id="${CSS.escape(id)}"] [data-mv="${btn.dataset.mv}"]`)?.focus();
-    });
-    $('#provider-list').addEventListener('change', (e) => {
-      if (e.target.type !== 'checkbox') return;
-      const id = e.target.closest('li').dataset.id;
-      if (e.target.checked) { if (!draft.providers.includes(id)) draft.providers.push(id); } else draft.providers = draft.providers.filter((x) => x !== id);
-      renderSettings();
-    });
-    $('#general-form').addEventListener('input', (e) => {
-      const k = e.target.dataset.k;
-      if (!k) return;
-      if (e.target.type === 'checkbox') draft[k] = e.target.checked;
-      else if (e.target.type === 'range') { draft[k] = Number(e.target.value); const v = $(`[data-v="${k}"]`); if (v) v.textContent = e.target.value; }
-      else if (k === 'proxy' || k === 'lastfm_api_key') draft[k] = e.target.value.trim() || null;
-      else if (k === 'tag_clean_pattern') {
-        draft[k] = e.target.value.trim() ? e.target.value : null;
-        e.target.removeAttribute('aria-invalid');
-        $('#tag-clean-error').textContent = '';
-      }
-      else draft[k] = e.target.value;
-    });
-    const tabs = $$('#stabs [role=tab]');
-    const pick = (b) => {
-      tabs.forEach((x) => { const on = x === b; x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
-      ['providers', 'general', 'plugins'].forEach((n) => { $(`#s-${n}`).hidden = n !== b.dataset.s; });
-    };
-    tabs.forEach((b) => { b.tabIndex = b.getAttribute('aria-selected') === 'true' ? 0 : -1; });
-    $('#stabs').addEventListener('click', (e) => { const b = e.target.closest('[role=tab]'); if (b) pick(b); });
-    $('#stabs').addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      const i = tabs.indexOf(document.activeElement);
-      const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
-      pick(n); n.focus();
-    });
-    $('#settings-close').onclick = closeSettings;
-    $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') closeSettings(); });
-    $('#settings').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
-    $('#settings-save').onclick = async () => {
-      try {
-        draft.library_dirs = S.settings.config.library_dirs;
-        S.settings = await invoke('set_settings', { config: draft });
-        S.replace = !!S.settings.config.overwrite;
-        renderTop();
-        $('#web-engine').innerHTML = engineOptions(S.settings.engines, S.settings.config.search_engine);
-        toast('Settings saved', 'good');
-        closeSettings();
-        renderLibraries();
-      } catch (e) {
-        const message = errText(e);
-        if (message.startsWith('tag_clean_pattern is not a valid regex')) {
-          pick(tabs.find((b) => b.dataset.s === 'general'));
-          const field = $('#f-tag_clean_pattern');
-          field.setAttribute('aria-invalid', 'true');
-          $('#tag-clean-error').textContent = 'Enter a valid regular expression.';
-          field.focus();
-        } else toast(message, 'bad', 8000);
-      }
-    };
-    $('#plugin-install').onclick = async () => {
-      const r = await T.dialog.open({ directory: true, title: 'Choose a plugin folder (it contains plugin.toml)' });
-      if (!r) return;
-      try {
-        S.settings = await invoke('install_plugin', { dir: Array.isArray(r) ? r[0] : r });
-        draft = JSON.parse(JSON.stringify(S.settings.config));
-        renderSettings();
-        toast('Plugin installed and enabled', 'good');
-      } catch (e) { toast(errText(e), 'bad', 8000); }
-    };
-    $('#plugin-test').onclick = async () => {
-      const ul = $('#health-list');
-      ul.innerHTML = '<li><i class="led searching" aria-hidden="true"></i><span>Testing every source</span></li>';
-      try {
-        const res = await invoke('test_providers');
-        ul.innerHTML = res.map((r) => `<li><i class="led ${r.ok ? 'on' : 'error'}" aria-hidden="true"></i><b>${esc(r.id)}</b><span class="mono" style="flex:1;color:var(--muted)">${r.ok ? 'ok' : esc(r.detail)}</span><span class="mono" style="color:var(--muted)">${r.millis} ms</span></li>`).join('');
-      } catch (e) { ul.innerHTML = `<li>${esc(errText(e))}</li>`; }
-    };
-  }
-
   // ───────────────────────── theme, text size, resizable inspector ─────────────────────────
-  function setTheme(t) {
-    const root = document.documentElement;
-    root.classList.add('theme-switching');
-    root.dataset.theme = t;
-    store.set('lf-theme', t);
-    $('#btn-theme').innerHTML = icon(t === 'light' ? 'moon' : 'sun');
-    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('theme-switching')));
+  // theme, accent and lyrics size are shared with the settings window (see shared.js)
+  function paintAppearance() {
+    const theme = window.LX.applyAppearance();
+    $('#btn-theme').innerHTML = icon(theme === 'light' ? 'moon' : 'sun');
+    S.lyricsSize = Number(store.get('lf-lyrics-size')) || 14;
   }
-
-  function setLyricsSize(px) {
-    S.lyricsSize = Math.min(28, Math.max(11, px));
-    document.documentElement.style.setProperty('--lyrics-size', `${S.lyricsSize}px`);
-    store.set('lf-lyrics-size', String(S.lyricsSize));
-  }
+  function setTheme(t) { store.set('lf-theme', t); paintAppearance(); }
+  function setLyricsSize(px) { store.set('lf-lyrics-size', String(Math.min(28, Math.max(11, px)))); paintAppearance(); }
 
   const DETAIL_MIN = 340;
   const detailMax = () => Math.max(DETAIL_MIN, Math.min(1000, window.innerWidth - 480 - 6));
@@ -1038,7 +841,7 @@
     });
 
     $('#btn-run').onclick = runAll;
-    $('#btn-settings').onclick = openSettings;
+    $('#btn-settings').onclick = () => invoke('open_settings').catch((e) => toast(errText(e), 'bad'));
     $('#btn-theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
 
     $('#sel-all').onclick = toggleSelectAll;
@@ -1087,7 +890,7 @@
     for (const id of ['#import-pop', '#track-pop']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Escape') { const a = S.pop?.anchor; closeFloating(); a?.focus(); } });
     $('#font-down').onclick = () => setLyricsSize(S.lyricsSize - 1);
     $('#font-up').onclick = () => setLyricsSize(S.lyricsSize + 1);
-    setLyricsSize(Number(store.get('lf-lyrics-size')) || 14);
+    paintAppearance();
     S.tbMode = 'both';
     applyToolbarMode();
 
@@ -1157,7 +960,7 @@
     document.addEventListener('keydown', (e) => {
       if (S.modalOpen) return;
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
-      const inControl = document.activeElement?.closest('#tabs, #viewtabs, #stabs, #splitter, .toolbar, .player, .popover, button');
+      const inControl = document.activeElement?.closest('#tabs, #viewtabs, #splitter, .toolbar, .player, .popover, button');
       if (e.key === 'Escape') {
         if (S.pop) closeFloating();
         else if (S.sel.size) { S.sel.clear(); renderRows(); renderSelbar(); renderTop(); }
@@ -1201,9 +1004,23 @@
       renderLibraries();
     });
 
-    wireSettings();
     wireSplitter();
-    setTheme(store.get('lf-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+    paintAppearance();
+    // the settings window changed appearance, or the system switched light/dark
+    window.addEventListener('storage', paintAppearance);
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintAppearance);
+    // window-level appearance the backend applies: interface scale and the tray icon style
+    const scale = Number(store.get('lf-scale')) || 1;
+    if (scale !== 1) invoke('set_ui_scale', { scale }).catch(() => {});
+    if (store.get('lf-tray') === 'mono') invoke('set_tray_style', { style: 'mono' }).catch(() => {});
+    // settings saved in the settings window
+    T.event.listen('settings-changed', (e) => {
+      S.settings = e.payload;
+      S.replace = !!S.settings.config.overwrite;
+      $('#web-engine').innerHTML = engineOptions(S.settings.engines, S.settings.config.search_engine);
+      renderTop();
+      renderLibraries();
+    });
 
     // events from the backend
     T.event.listen('session-log', (e) => logEvent(e.payload));

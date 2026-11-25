@@ -579,7 +579,7 @@ async fn delete_lyrics(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>
 
 // ───────────────────────────── settings & plugins ─────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Settings {
     config: Config,
     providers: Vec<ProviderInfo>,
@@ -615,7 +615,7 @@ fn get_settings(state: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn set_settings(state: State<'_, AppState>, config: Config) -> CmdResult<Settings> {
+fn set_settings(app: AppHandle, state: State<'_, AppState>, config: Config) -> CmdResult<Settings> {
     let mut inner = state.0.lock().unwrap();
     if let Some(error) = &inner.settings_write_error {
         return Err(error.clone());
@@ -624,11 +624,14 @@ fn set_settings(state: State<'_, AppState>, config: Config) -> CmdResult<Setting
     config.save().map_err(err)?;
     inner.cfg = config;
     inner.engine = Ok(engine);
-    Ok(settings_of(&inner.cfg))
+    let out = settings_of(&inner.cfg);
+    // both windows edit settings: each keeps the other's latest changes
+    let _ = app.emit("settings-changed", &out);
+    Ok(out)
 }
 
 #[tauri::command]
-fn install_plugin(state: State<'_, AppState>, dir: String) -> CmdResult<Settings> {
+fn install_plugin(app: AppHandle, state: State<'_, AppState>, dir: String) -> CmdResult<Settings> {
     use providers::plugin::ExternalProvider;
     let src = PathBuf::from(&dir);
     let loaded = ExternalProvider::load(&src).map_err(err)?;
@@ -647,7 +650,9 @@ fn install_plugin(state: State<'_, AppState>, dir: String) -> CmdResult<Settings
     cfg.save().map_err(err)?;
     inner.cfg = cfg;
     inner.engine = Ok(engine);
-    Ok(settings_of(&inner.cfg))
+    let out = settings_of(&inner.cfg);
+    let _ = app.emit("settings-changed", &out);
+    Ok(out)
 }
 
 #[derive(Serialize)]
@@ -689,6 +694,15 @@ struct Rect {
     /// Height of the UI's own viewport, to line the page up with it (see [`page_position`]).
     #[serde(default)]
     vh: Option<f64>,
+    /// The UI's zoom (interface scale): its CSS pixels times this are window pixels.
+    #[serde(default)]
+    scale: Option<f64>,
+}
+
+impl Rect {
+    fn zoom(&self) -> f64 {
+        self.scale.filter(|z| *z > 0.0).unwrap_or(1.0)
+    }
 }
 
 /// Where the page goes, in the window's coordinates. On macOS the window's height includes the title bar
@@ -696,10 +710,10 @@ struct Rect {
 /// difference between the two heights is that offset (0 where they agree).
 fn page_position(window: &tauri::Window, rect: &Rect) -> LogicalPosition<f64> {
     let offset = match (rect.vh, window.inner_size(), window.scale_factor()) {
-        (Some(vh), Ok(size), Ok(scale)) => (size.to_logical::<f64>(scale).height - vh).max(0.0),
+        (Some(vh), Ok(size), Ok(scale)) => (size.to_logical::<f64>(scale).height - vh * rect.zoom()).max(0.0),
         _ => 0.0,
     };
-    LogicalPosition::new(rect.x, rect.y + offset)
+    LogicalPosition::new(rect.x * rect.zoom(), rect.y * rect.zoom() + offset)
 }
 
 fn parse_url(u: &str) -> CmdResult<tauri::Url> {
@@ -718,7 +732,7 @@ fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>,
     }
     let window = app.get_window("main").context("main window").map_err(err)?;
     let pos = page_position(&window, &rect);
-    let size = LogicalSize::new(rect.w.max(1.0), rect.h.max(1.0));
+    let size = LogicalSize::new((rect.w * rect.zoom()).max(1.0), (rect.h * rect.zoom()).max(1.0));
     state.0.lock().unwrap().browser_rect = Some(rect);
     if std::env::var_os("LYRIXEARCH_BROWSER_DEBUG").is_some() {
         let ui = app.get_webview("ui");
@@ -834,6 +848,39 @@ fn browser_reload(app: AppHandle) {
     if let Some(wv) = app.get_webview("browser") {
         let _ = wv.eval("location.reload()");
     }
+}
+
+/// Open the settings window, or bring it forward when it is already open.
+#[tauri::command]
+fn open_settings(app: AppHandle) -> CmdResult<()> {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.unminimize();
+        w.show().map_err(err)?;
+        return w.set_focus().map_err(err);
+    }
+    tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("Settings")
+        .inner_size(880.0, 620.0)
+        .min_inner_size(720.0, 480.0)
+        .center()
+        .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png")).map_err(err)?)
+        .map_err(err)?
+        .build()
+        .map_err(err)?;
+    Ok(())
+}
+
+/// Interface scale of the main window (Settings → Appearance), 0.8 to 1.5.
+#[tauri::command]
+fn set_ui_scale(app: AppHandle, scale: f64) -> CmdResult<()> {
+    let ui = app.get_webview("ui").context("main window").map_err(err)?;
+    ui.set_zoom(scale.clamp(0.8, 1.5)).map_err(err)
+}
+
+/// Coloured status lamp or monochrome mark in the menu bar / tray (Settings → Appearance).
+#[tauri::command]
+fn set_tray_style(app: AppHandle, style: String) {
+    tray::set_style(&app, style == "mono");
 }
 
 /// The text the person highlighted on the page in the web panel (empty when nothing is selected).
@@ -1312,6 +1359,9 @@ fn main() {
             browser_forward,
             browser_reload,
             browser_selection,
+            open_settings,
+            set_ui_scale,
+            set_tray_style,
             web_search_url,
             open_external,
             selftest_report,
@@ -1434,7 +1484,7 @@ fn main() {
                         // browser panel away from its slot. Put it back where the UI last placed it.
                         if let (Some(wv), Some(r)) = (handle.get_webview("browser"), handle.state::<AppState>().0.lock().unwrap().browser_rect) {
                             let _ = wv.set_position(page_position(&w, &r));
-                            let _ = wv.set_size(LogicalSize::new(r.w.max(1.0), r.h.max(1.0)));
+                            let _ = wv.set_size(LogicalSize::new((r.w * r.zoom()).max(1.0), (r.h * r.zoom()).max(1.0)));
                         }
                     }
                 }

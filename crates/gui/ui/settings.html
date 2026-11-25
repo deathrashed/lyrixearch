@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="settings-window">
+  <div class="sw">
+    <nav class="sw-nav" aria-label="Settings sections">
+      <button data-sec="general" aria-current="page"><span data-icon="gear"></span><span>General</span></button>
+      <button data-sec="sources"><span data-icon="database"></span><span>Sources</span></button>
+      <button data-sec="files"><span data-icon="fileText"></span><span>Files</span></button>
+      <button data-sec="appearance"><span data-icon="palette"></span><span>Appearance</span></button>
+      <button data-sec="plugins"><span data-icon="plug"></span><span>Plugins</span></button>
+      <button data-sec="about"><span data-icon="info"></span><span>About</span></button>
+    </nav>
+    <main class="sw-main">
+      <header class="sw-head"><h1 id="sw-title">General</h1><p id="sw-sub"></p></header>
+      <div class="sw-body" id="sw-body"></div>
+    </main>
+  </div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <script src="shared.js"></script>
+  <script src="mock.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>
