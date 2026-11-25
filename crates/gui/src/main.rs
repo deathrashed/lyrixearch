@@ -686,6 +686,20 @@ struct Rect {
     y: f64,
     w: f64,
     h: f64,
+    /// Height of the UI's own viewport, to line the page up with it (see [`page_position`]).
+    #[serde(default)]
+    vh: Option<f64>,
+}
+
+/// Where the page goes, in the window's coordinates. On macOS the window's height includes the title bar
+/// while the UI is laid out below it, so a slot measured in the UI would land one title bar too high; the
+/// difference between the two heights is that offset (0 where they agree).
+fn page_position(window: &tauri::Window, rect: &Rect) -> LogicalPosition<f64> {
+    let offset = match (rect.vh, window.inner_size(), window.scale_factor()) {
+        (Some(vh), Ok(size), Ok(scale)) => (size.to_logical::<f64>(scale).height - vh).max(0.0),
+        _ => 0.0,
+    };
+    LogicalPosition::new(rect.x, rect.y + offset)
 }
 
 fn parse_url(u: &str) -> CmdResult<tauri::Url> {
@@ -703,9 +717,25 @@ fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>,
         return Err("Pages cannot be shown inside the window on this system; use Browser to open them in your browser".into());
     }
     let window = app.get_window("main").context("main window").map_err(err)?;
-    let pos = LogicalPosition::new(rect.x, rect.y);
+    let pos = page_position(&window, &rect);
     let size = LogicalSize::new(rect.w.max(1.0), rect.h.max(1.0));
     state.0.lock().unwrap().browser_rect = Some(rect);
+    if std::env::var_os("LYRIXEARCH_BROWSER_DEBUG").is_some() {
+        let ui = app.get_webview("ui");
+        eprintln!(
+            "browser_show rect=({}, {}, {}, {}) ui_pos={:?} ui_size={:?} inner={:?} outer_pos={:?} inner_pos={:?} browser_pos={:?}",
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            ui.as_ref().and_then(|w| w.position().ok()),
+            ui.as_ref().and_then(|w| w.size().ok()),
+            window.inner_size().ok(),
+            window.outer_position().ok(),
+            window.inner_position().ok(),
+            app.get_webview("browser").and_then(|w| w.position().ok())
+        );
+    }
     if let Some(wv) = app.get_webview("browser") {
         wv.set_position(pos).map_err(err)?;
         wv.set_size(size).map_err(err)?;
@@ -724,7 +754,11 @@ fn browser_show(app: AppHandle, state: State<'_, AppState>, url: Option<String>,
         let inner = state.0.lock().unwrap();
         (inner.browser_mobile, inner.zoom)
     };
-    let mut builder = WebviewBuilder::new("browser", WebviewUrl::External(parse_url(&u)?));
+    // remember the last text the person selected: clicking "Use selection" moves focus to the UI,
+    // and WebKit clears the page's selection when that happens
+    let mut builder = WebviewBuilder::new("browser", WebviewUrl::External(parse_url(&u)?)).initialization_script(
+        "document.addEventListener('selectionchange', () => { const s = String(window.getSelection()); if (s.trim()) window.__lxSel = s; });",
+    );
     if mobile {
         builder = builder.user_agent(MOBILE_UA);
     }
@@ -800,6 +834,22 @@ fn browser_reload(app: AppHandle) {
     if let Some(wv) = app.get_webview("browser") {
         let _ = wv.eval("location.reload()");
     }
+}
+
+/// The text the person highlighted on the page in the web panel (empty when nothing is selected).
+#[tauri::command]
+async fn browser_selection(app: AppHandle) -> CmdResult<String> {
+    let wv = app.get_webview("browser").context("no page is open").map_err(err)?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    let tx = std::sync::Mutex::new(Some(tx));
+    wv.eval_with_callback("window.__lxSel || String(window.getSelection ? window.getSelection() : '')", move |json| {
+        if let Some(tx) = tx.lock().unwrap().take() {
+            let _ = tx.send(json);
+        }
+    })
+    .map_err(err)?;
+    let json = tokio::time::timeout(std::time::Duration::from_secs(5), rx).await.map_err(|_| "the page did not answer".to_string())?.map_err(err)?;
+    Ok(serde_json::from_str::<String>(&json).unwrap_or_default().trim().to_string())
 }
 
 #[tauri::command]
@@ -1261,6 +1311,7 @@ fn main() {
             browser_back,
             browser_forward,
             browser_reload,
+            browser_selection,
             web_search_url,
             open_external,
             selftest_report,
@@ -1382,7 +1433,7 @@ fn main() {
                         // macOS pins child webviews to the window's bottom edge, so a height change slides the
                         // browser panel away from its slot. Put it back where the UI last placed it.
                         if let (Some(wv), Some(r)) = (handle.get_webview("browser"), handle.state::<AppState>().0.lock().unwrap().browser_rect) {
-                            let _ = wv.set_position(LogicalPosition::new(r.x, r.y));
+                            let _ = wv.set_position(page_position(&w, &r));
                             let _ = wv.set_size(LogicalSize::new(r.w.max(1.0), r.h.max(1.0)));
                         }
                     }

@@ -57,7 +57,7 @@ fn dark_panel(app: &AppHandle) -> bool {
 /// Create the tray icon and its menu. A failure (no tray support on this desktop) is not fatal.
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Lyrixearch", true, None::<&str>)?;
-    let find = MenuItem::with_id(app, "find-all", "Find & embed all", true, None::<&str>)?;
+    let find = MenuItem::with_id(app, "find-all", "Fetch lyrics", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Stop search", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Lyrixearch", true, None::<&str>)?;
     let sep = || PredefinedMenuItem::separator(app);
