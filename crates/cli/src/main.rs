@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use lyrixearch_core::{scan, tags, Config, Engine, Event, Sidecar, Track};
 use serde_json::json;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +40,9 @@ enum Cmd {
         /// Report what would be embedded, change nothing
         #[arg(long)]
         dry_run: bool,
+        /// One JSON object per track on stdout
+        #[arg(long)]
+        json: bool,
     },
     /// Print the lyrics embedded in a file
     Show { path: PathBuf },
@@ -50,12 +54,18 @@ enum Cmd {
         /// Do not ask for confirmation
         #[arg(short, long)]
         yes: bool,
+        /// One JSON object per track on stdout
+        #[arg(long)]
+        json: bool,
     },
     /// List providers, or health-check them
     Providers {
         /// Query every provider once and report status and latency
         #[arg(long)]
         test: bool,
+        /// One JSON object per provider on stdout
+        #[arg(long)]
+        json: bool,
     },
     /// Manage plugins (external scripts that act as extra lyrics sources)
     Plugins {
@@ -72,7 +82,11 @@ enum Cmd {
 #[derive(Subcommand)]
 enum PluginCmd {
     /// List installed plugins and any that failed to load
-    List,
+    List {
+        /// One JSON object per installed plugin on stdout
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the plugins folder
     Path,
     /// Copy a plugin folder (containing plugin.toml) into the plugins folder
@@ -97,6 +111,8 @@ enum ConfigCmd {
     Show,
     /// Print the settings file path
     Path,
+    /// Print one setting
+    Get { key: String },
     /// Set one key, e.g. `config set sidecar auto`
     Set { key: String, value: String },
     /// Restore defaults
@@ -133,6 +149,15 @@ struct FetchArgs {
     /// Replace lyrics that are already embedded
     #[arg(long)]
     overwrite: bool,
+    /// Accept only synced lyrics
+    #[arg(long)]
+    synced: bool,
+    /// Preserve file modification times
+    #[arg(long, conflicts_with = "no_keep_mtime")]
+    keep_mtime: bool,
+    /// Let the modification time change when writing lyrics
+    #[arg(long)]
+    no_keep_mtime: bool,
     /// Search and report, but write nothing
     #[arg(long)]
     dry_run: bool,
@@ -177,9 +202,9 @@ fn main() -> Result<ExitCode> {
                 Ok(ExitCode::FAILURE)
             }
         },
-        Some(Cmd::EmbedFiles { paths, recursive, overwrite, dry_run }) => embed_files_cmd(paths, recursive, overwrite, dry_run, &cfg),
-        Some(Cmd::Remove { paths, recursive, yes }) => remove_cmd(paths, recursive, yes, &cfg),
-        Some(Cmd::Providers { test }) => rt.block_on(providers_cmd(test, cfg)),
+        Some(Cmd::EmbedFiles { paths, recursive, overwrite, dry_run, json }) => embed_files_cmd(paths, recursive, overwrite, dry_run, json, &cfg),
+        Some(Cmd::Remove { paths, recursive, yes, json }) => remove_cmd(paths, recursive, yes, json, &cfg),
+        Some(Cmd::Providers { test, json }) => rt.block_on(providers_cmd(test, json, cfg)),
         Some(Cmd::Plugins { action }) => rt.block_on(plugins_cmd(action, cfg)),
         Some(Cmd::Config { action }) => config_cmd(action, cfg),
     }
@@ -222,6 +247,12 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
     }
     if a.overwrite {
         cfg.overwrite = true;
+    }
+    if a.synced {
+        cfg.synced_only = true;
+    }
+    if a.keep_mtime || a.no_keep_mtime {
+        cfg.keep_mtime = a.keep_mtime;
     }
     let engine = Engine::new(cfg.clone())?;
 
@@ -339,8 +370,8 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
     Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
-fn embed_files_cmd(paths: Vec<PathBuf>, recursive: bool, overwrite: bool, dry_run: bool, cfg: &Config) -> Result<ExitCode> {
-    use lyrixearch_core::{lrc, output, providers};
+fn embed_files_cmd(paths: Vec<PathBuf>, recursive: bool, overwrite: bool, dry_run: bool, json: bool, cfg: &Config) -> Result<ExitCode> {
+    use lyrixearch_core::{output, SidecarEmbed};
     if paths.is_empty() {
         bail!("give at least one file or folder");
     }
@@ -350,49 +381,66 @@ fn embed_files_cmd(paths: Vec<PathBuf>, recursive: bool, overwrite: bool, dry_ru
     }
     let (mut done, mut missing, mut skipped, mut failed) = (0usize, 0usize, 0usize, 0usize);
     for t in &tracks {
-        if t.has_lyrics && !overwrite {
-            skipped += 1;
-            continue;
-        }
-        let Some((file, raw)) = providers::find_sidecar(&t.path) else {
-            missing += 1;
-            continue;
-        };
-        let plain = if lrc::looks_synced(&raw) { lrc::strip_timestamps(&raw) } else { raw };
-        let text = output::postprocess(&plain, cfg);
-        if text.trim().is_empty() {
-            missing += 1;
-            continue;
-        }
-        if dry_run {
-            done += 1;
-            println!("would embed {} ← {}", t.path.display(), file.display());
-            continue;
-        }
-        match tags::write_lyrics(&t.path, &text, cfg.keep_mtime) {
-            Ok(()) => {
+        let path = t.path.to_string_lossy();
+        match output::embed_from_sidecar(t, cfg, overwrite, None, dry_run) {
+            Ok(SidecarEmbed::AlreadyHad) => {
+                skipped += 1;
+                if json {
+                    println!("{}", json!({"path": path, "status": "already_had"}));
+                }
+            }
+            Ok(SidecarEmbed::NoFile) => {
+                missing += 1;
+                if json {
+                    println!("{}", json!({"path": path, "status": "no_file"}));
+                }
+            }
+            Ok(SidecarEmbed::WouldEmbed(file)) => {
                 done += 1;
-                println!("embedded {} ← {}", t.path.display(), file.file_name().unwrap_or_default().to_string_lossy());
+                if json {
+                    println!("{}", json!({"path": path, "status": "would_embed", "sidecar": file.to_string_lossy()}));
+                } else {
+                    println!("would embed {} ← {}", t.path.display(), file.display());
+                }
+            }
+            Ok(SidecarEmbed::Embedded(file)) => {
+                done += 1;
+                if json {
+                    println!("{}", json!({"path": path, "status": "embedded", "sidecar": file.to_string_lossy()}));
+                } else {
+                    println!("embedded {} ← {}", t.path.display(), file.file_name().unwrap_or_default().to_string_lossy());
+                }
             }
             Err(e) => {
                 failed += 1;
-                eprintln!("failed {}: {e:#}", t.path.display());
+                if json {
+                    println!("{}", json!({"path": path, "status": "error", "error": format!("{e:#}")}));
+                } else {
+                    eprintln!("failed {}: {e:#}", t.path.display());
+                }
             }
         }
     }
-    eprintln!(
-        "\n{} {done}, no matching file {missing}, already had lyrics {skipped}{}",
-        if dry_run { "would embed" } else { "embedded" },
-        if failed > 0 { format!(", failed {failed}") } else { String::new() }
-    );
+    if !json {
+        eprintln!(
+            "\n{} {done}, no matching file {missing}, already had lyrics {skipped}{}",
+            if dry_run { "would embed" } else { "embedded" },
+            if failed > 0 { format!(", failed {failed}") } else { String::new() }
+        );
+    }
     Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
-fn remove_cmd(paths: Vec<PathBuf>, recursive: bool, yes: bool, cfg: &Config) -> Result<ExitCode> {
+fn remove_cmd(paths: Vec<PathBuf>, recursive: bool, yes: bool, json: bool, cfg: &Config) -> Result<ExitCode> {
+    if !yes && !std::io::stdin().is_terminal() {
+        bail!("remove requires --yes when stdin is not a terminal");
+    }
     let (tracks, _) = load_tracks(&paths, recursive);
     let targets: Vec<&Track> = tracks.iter().filter(|t| t.has_lyrics).collect();
     if targets.is_empty() {
-        println!("nothing to remove");
+        if !json {
+            println!("nothing to remove");
+        }
         return Ok(ExitCode::SUCCESS);
     }
     if !yes {
@@ -406,33 +454,58 @@ fn remove_cmd(paths: Vec<PathBuf>, recursive: bool, yes: bool, cfg: &Config) -> 
     let mut failed = 0;
     for t in targets {
         match tags::remove_lyrics(&t.path, cfg.keep_mtime) {
+            Ok(()) if json => println!("{}", json!({"path": t.path.to_string_lossy(), "status": "removed"})),
             Ok(()) => println!("removed: {}", t.path.display()),
             Err(e) => {
                 failed += 1;
-                eprintln!("failed: {}: {e:#}", t.path.display());
+                if json {
+                    println!("{}", json!({"path": t.path.to_string_lossy(), "status": "error", "error": format!("{e:#}")}));
+                } else {
+                    eprintln!("failed: {}: {e:#}", t.path.display());
+                }
             }
         }
     }
     Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
-async fn providers_cmd(test: bool, cfg: Config) -> Result<ExitCode> {
+async fn providers_cmd(test: bool, json: bool, cfg: Config) -> Result<ExitCode> {
     let all: Vec<String> = lyrixearch_core::providers::all(&Config::plugins_dir()).iter().map(|p| p.id().to_string()).collect();
     if !test {
-        println!("order  provider");
+        if !json {
+            println!("order  provider");
+        }
         for (i, id) in cfg.providers.iter().enumerate() {
-            println!("{:>5}  {id}", i + 1);
+            if json {
+                println!("{}", json!({"id": id, "enabled": true, "order": i + 1}));
+            } else {
+                println!("{:>5}  {id}", i + 1);
+            }
         }
         for id in all.iter().filter(|id| !cfg.providers.iter().any(|p| &p == id)) {
-            println!("  off  {id}");
+            if json {
+                println!("{}", json!({"id": id, "enabled": false, "order": null}));
+            } else {
+                println!("  off  {id}");
+            }
         }
         return Ok(ExitCode::SUCCESS);
     }
     let mut c = cfg;
-    c.providers = all.clone();
+    c.providers = all;
     let engine = Engine::new(c)?;
     let mut bad = 0;
     for (id, res, took) in engine.test_providers().await {
+        if json {
+            let (status, detail) = match &res {
+                Ok(true) => ("ok", None),
+                Ok(false) => ("no_result", Some("reachable, no result for the test track")),
+                Err(e) => ("error", Some(e.as_str())),
+            };
+            bad += usize::from(status != "ok");
+            println!("{}", json!({"id": id, "status": status, "detail": detail, "millis": took.as_millis()}));
+            continue;
+        }
         match res {
             Ok(true) => println!("✓ {id:<12} {took:>6.0?}"),
             Ok(false) => {
@@ -452,6 +525,7 @@ fn config_cmd(action: ConfigCmd, mut cfg: Config) -> Result<ExitCode> {
     match action {
         ConfigCmd::Show => print!("{}", toml::to_string_pretty(&cfg)?),
         ConfigCmd::Path => println!("{}", Config::path().map(|p| p.display().to_string()).unwrap_or_else(|| "(none)".into())),
+        ConfigCmd::Get { key } => println!("{}", cfg.get(&key)?),
         ConfigCmd::Set { key, value } => {
             cfg.set(&key, &value)?;
             println!("saved to {}", cfg.save()?.display());
@@ -461,44 +535,32 @@ fn config_cmd(action: ConfigCmd, mut cfg: Config) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
-    std::fs::create_dir_all(to)?;
-    for e in std::fs::read_dir(from)? {
-        let e = e?;
-        let (src, dst) = (e.path(), to.join(e.file_name()));
-        if e.file_name() == "__pycache__" {
-            continue;
-        }
-        if src.is_dir() {
-            copy_dir(&src, &dst)?;
-        } else {
-            std::fs::copy(&src, &dst)?;
-        }
-    }
-    Ok(())
-}
-
 async fn plugins_cmd(action: PluginCmd, cfg: Config) -> Result<ExitCode> {
     use lyrixearch_core::providers::plugin;
     let dir = Config::plugins_dir();
     match action {
         PluginCmd::Path => println!("{}", dir.display()),
-        PluginCmd::List => {
+        PluginCmd::List { json } => {
             let (ok, bad) = plugin::discover(&dir);
-            if ok.is_empty() && bad.is_empty() {
+            if !json && ok.is_empty() && bad.is_empty() {
                 println!("no plugins installed in {}", dir.display());
             }
             for p in &ok {
                 let m = p.manifest();
-                let enabled = if cfg.providers.iter().any(|x| x == &m.id) {
-                    "enabled"
-                } else {
-                    "not in `providers` — add it with: lyrixearch config set providers …"
-                };
+                let enabled = cfg.providers.contains(&m.id);
+                if json {
+                    println!("{}", json!({"id": m.id, "name": m.name, "path": p.dir().to_string_lossy(), "enabled": enabled, "status": "loaded"}));
+                    continue;
+                }
+                let enabled = if enabled { "enabled" } else { "not in `providers` — add it with: lyrixearch config set providers …" };
                 println!("{:<14} {}  [{}]\n               {}", m.id, m.name, enabled, p.dir().display());
             }
             for (path, e) in &bad {
-                println!("✗ {}: {e:#}", path.display());
+                if json {
+                    println!("{}", json!({"path": path.to_string_lossy(), "status": "error", "error": format!("{e:#}")}));
+                } else {
+                    println!("✗ {}: {e:#}", path.display());
+                }
             }
         }
         PluginCmd::Install { dir: src } => {
@@ -509,7 +571,7 @@ async fn plugins_cmd(action: PluginCmd, cfg: Config) -> Result<ExitCode> {
             let loaded = plugin::ExternalProvider::load(&src)?;
             let id = loaded.manifest().id.clone();
             let dest = dir.join(src.file_name().context("bad plugin folder name")?);
-            copy_dir(&src, &dest)?;
+            lyrixearch_core::util::copy_dir(&src, &dest)?;
             println!("installed `{id}` to {}", dest.display());
             if !cfg.providers.iter().any(|p| p == &id) {
                 println!("enable it: lyrixearch config set providers {},{}", cfg.providers.join(","), id);
@@ -540,4 +602,21 @@ async fn plugins_cmd(action: PluginCmd, cfg: Config) -> Result<ExitCode> {
 
 fn reqwest_client() -> lyrixearch_core::HttpClient {
     lyrixearch_core::HttpClient::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fetch_accepts_either_mtime_override() {
+        for (flag, expected) in [("--keep-mtime", true), ("--no-keep-mtime", false)] {
+            let cli = Cli::try_parse_from(["lyrixearch", "fetch", "--synced", flag, "song.flac"]).unwrap();
+            let Some(Cmd::Fetch(args)) = cli.cmd else { panic!("expected fetch") };
+            assert!(args.synced);
+            assert_eq!(args.keep_mtime, expected);
+            assert_eq!(args.no_keep_mtime, !expected);
+        }
+        assert!(Cli::try_parse_from(["lyrixearch", "fetch", "--keep-mtime", "--no-keep-mtime"]).is_err());
+    }
 }

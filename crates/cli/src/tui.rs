@@ -3,7 +3,7 @@
 use crate::picker::{Outcome, Picker};
 use anyhow::Result;
 use crossterm::event::{self, Event as CtEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use lyrixearch_core::{lrc, output, providers, scan, tags, util, Config, Engine, Event, Lyrics, Sidecar, Track};
+use lyrixearch_core::{output, pending, scan, tags, util, Config, Engine, Event, Lyrics, Sidecar, SidecarEmbed, Track};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -29,6 +29,7 @@ enum Status {
 }
 
 struct Item {
+    id: usize,
     track: Track,
     status: Status,
     found: Option<Lyrics>,
@@ -55,6 +56,7 @@ struct App {
     cfg: Config,
     engine: Arc<Engine>,
     items: Vec<Item>,
+    next_id: usize,
     visible: Vec<usize>,
     table: TableState,
     marked: HashSet<usize>,
@@ -83,6 +85,7 @@ impl App {
             handle,
             cfg,
             items: Vec::new(),
+            next_id: 0,
             visible: Vec::new(),
             table: TableState::default(),
             marked: HashSet::new(),
@@ -106,20 +109,44 @@ impl App {
 
     fn add_paths(&mut self, paths: &[PathBuf]) {
         let files = scan::collect_audio(paths, true);
+        let pending = pending::load();
+        let mut restored = 0;
         let known: HashSet<PathBuf> = self.items.iter().map(|i| i.track.path.clone()).collect();
         let (mut added, mut bad) = (0, 0);
         for f in files.into_iter().filter(|f| !known.contains(f)) {
             match tags::read_track(&f) {
                 Ok(track) => {
                     let embedded = if track.has_lyrics { tags::read_lyrics(&track.path) } else { None };
-                    self.items.push(Item { track, status: Status::Idle, found: None, embedded });
+                    let found = pending.as_ref().ok().and_then(|map| map.get(&util::pending_key(&track.path))).cloned();
+                    restored += usize::from(found.is_some());
+                    let status = if found.is_some() { Status::Found } else { Status::Idle };
+                    self.items.push(Item { id: self.next_id, track, status, found, embedded });
+                    self.next_id += 1;
                     added += 1;
                 }
                 Err(_) => bad += 1,
             }
         }
         self.message = format!("added {added} track(s){}", if bad > 0 { format!(", {bad} unreadable") } else { String::new() });
+        if restored > 0 {
+            self.message.push_str(&format!(" · restored {restored} pending result(s)"));
+        }
+        if let Err(e) = pending {
+            self.message.push_str(&format!(" · could not load pending lyrics: {e:#}"));
+        }
         self.refilter();
+    }
+
+    fn forget_pending(&mut self, paths: &[PathBuf]) {
+        if !paths.is_empty() {
+            if let Err(e) = pending::update(|map| {
+                for path in paths {
+                    map.remove(path);
+                }
+            }) {
+                self.message.push_str(&format!(" · could not clear pending lyrics: {e:#}"));
+            }
+        }
     }
 
     /// Add what the picker chose, remember it for "run last again", and optionally search just the new tracks.
@@ -133,9 +160,12 @@ impl App {
             self.message.push_str(" (could not save settings)");
         }
         if search_new && self.items.len() > before {
-            let added = self.message.clone();
-            self.queue((before..self.items.len()).filter(|&i| self.cfg.overwrite || !self.items[i].track.has_lyrics).collect());
-            if !self.message.starts_with("nothing") {
+            let work = (before..self.items.len())
+                .filter(|&i| self.items[i].found.is_none() && (self.cfg.overwrite || !self.items[i].track.has_lyrics))
+                .collect::<Vec<_>>();
+            if !work.is_empty() {
+                let added = self.message.clone();
+                self.queue(work);
                 self.message = format!("{added}; {}", self.message);
             }
         }
@@ -204,7 +234,7 @@ impl App {
         let mut work = Vec::new();
         for i in idxs {
             self.items[i].status = Status::Queued;
-            work.push((i, self.items[i].track.query.clone()));
+            work.push((self.items[i].id, self.items[i].track.query.clone()));
         }
         self.message = format!("searching {} track(s)…", work.len());
         let (engine, tx, cancel) = (self.engine.clone(), self.tx.clone(), self.cancel.clone());
@@ -213,32 +243,42 @@ impl App {
 
     fn drain_events(&mut self) {
         while let Ok(ev) = self.rx.try_recv() {
+            let id = match &ev {
+                Event::Trying { idx, .. } => *idx,
+                Event::Found { idx, .. } | Event::Failed { idx, .. } | Event::NotFound { idx, .. } | Event::Cancelled { idx } => {
+                    self.queued_done += 1;
+                    *idx
+                }
+                Event::Skipped { .. } => continue,
+                Event::Challenge { provider, .. } => {
+                    self.message = format!("{provider} wants a bot check passed: the desktop app opens a window for that");
+                    continue;
+                }
+            };
+            let Some(item) = self.items.iter_mut().find(|item| item.id == id) else { continue };
             match ev {
-                Event::Trying { idx, provider } => {
-                    self.current = format!("{} via {provider}", self.items[idx].track.query.title);
-                    self.items[idx].status = Status::Searching(provider);
+                Event::Trying { provider, .. } => {
+                    self.current = format!("{} via {provider}", item.track.query.title);
+                    item.status = Status::Searching(provider);
                 }
-                Event::Skipped { .. } => {}
-                Event::Challenge { provider, .. } => self.message = format!("{provider} wants a bot check passed: the desktop app opens a window for that"),
-                Event::Found { idx, lyrics } => {
-                    self.queued_done += 1;
+                Event::Found { lyrics, .. } => {
                     self.run_found += 1;
-                    self.items[idx].found = Some(*lyrics);
-                    self.items[idx].status = Status::Found;
+                    if item.track.path.is_file() {
+                        let key = util::pending_key(&item.track.path);
+                        if let Err(e) = pending::update(|map| map.insert(key, (*lyrics).clone())) {
+                            self.message = format!("could not save pending lyrics: {e:#}");
+                        }
+                    }
+                    item.found = Some(*lyrics);
+                    item.status = Status::Found;
                 }
-                Event::Failed { idx, notes } => {
-                    self.queued_done += 1;
-                    self.items[idx].status = Status::Error(notes.join("; "));
-                }
-                Event::NotFound { idx, notes } => {
-                    self.queued_done += 1;
+                Event::Failed { notes, .. } => item.status = Status::Error(notes.join("; ")),
+                Event::NotFound { notes, .. } => {
                     self.run_missed += 1;
-                    self.items[idx].status = Status::NotFound(notes.join("; "));
+                    item.status = Status::NotFound(notes.join("; "));
                 }
-                Event::Cancelled { idx } => {
-                    self.queued_done += 1;
-                    self.items[idx].status = Status::Idle;
-                }
+                Event::Cancelled { .. } => item.status = Status::Idle,
+                Event::Skipped { .. } | Event::Challenge { .. } => unreachable!(),
             }
         }
     }
@@ -246,29 +286,25 @@ impl App {
     /// Embed the `.lrc` / `.txt` that sits next to each marked (or current) track.
     fn embed_from_files(&mut self) {
         let (mut ok, mut missing, mut failed) = (0, 0, 0);
+        let mut written = Vec::new();
         for i in self.targets() {
-            let path = self.items[i].track.path.clone();
-            let Some((_, raw)) = providers::find_sidecar(&path) else {
-                missing += 1;
-                continue;
-            };
-            let plain = if lrc::looks_synced(&raw) { lrc::strip_timestamps(&raw) } else { raw };
-            let text = output::postprocess(&plain, &self.cfg);
-            if text.trim().is_empty() {
-                missing += 1;
-                continue;
-            }
-            match tags::write_lyrics(&path, &text, self.cfg.keep_mtime) {
-                Ok(()) => {
+            let item = &mut self.items[i];
+            match output::embed_from_sidecar(&item.track, &self.cfg, true, None, false) {
+                Ok(SidecarEmbed::Embedded(_)) => {
                     ok += 1;
-                    self.items[i].track.has_lyrics = true;
-                    self.items[i].embedded = Some(text);
-                    self.items[i].found = None;
-                    self.items[i].status = Status::Written;
+                    if item.found.is_some() {
+                        written.push(util::pending_key(&item.track.path));
+                    }
+                    item.track.has_lyrics = true;
+                    item.embedded = tags::read_lyrics(&item.track.path);
+                    item.found = None;
+                    item.status = Status::Written;
                 }
+                Ok(SidecarEmbed::NoFile) => missing += 1,
+                Ok(SidecarEmbed::AlreadyHad | SidecarEmbed::WouldEmbed(_)) => unreachable!("forced write with dry run disabled"),
                 Err(e) => {
                     failed += 1;
-                    self.items[i].status = Status::Error(format!("{e:#}"));
+                    item.status = Status::Error(format!("{e:#}"));
                 }
             }
         }
@@ -276,22 +312,29 @@ impl App {
             "embedded {ok} from .lrc / .txt · {missing} had no matching file{}",
             if failed > 0 { format!(" · {failed} failed") } else { String::new() }
         );
+        self.forget_pending(&written);
         self.refilter();
     }
 
     fn write_found(&mut self) {
         let mut ok = 0;
         let mut err = 0;
+        let mut written = Vec::new();
         for i in self.targets() {
             let Some(l) = self.items[i].found.clone() else { continue };
             match self.engine.apply(&self.items[i].track, &l) {
-                Ok(_) => {
+                Ok(applied) if applied.tag_written || applied.sidecar.is_some() => {
                     ok += 1;
+                    written.push(util::pending_key(&self.items[i].track.path));
                     self.items[i].status = Status::Written;
-                    if self.cfg.write_tags {
+                    if applied.tag_written {
                         self.items[i].track.has_lyrics = true;
                         self.items[i].embedded = l.embed_text();
                     }
+                }
+                Ok(_) => {
+                    err += 1;
+                    self.items[i].status = Status::Error("no output written; check tag and sidecar settings".into());
                 }
                 Err(e) => {
                     err += 1;
@@ -300,6 +343,7 @@ impl App {
             }
         }
         self.message = format!("wrote {ok} file(s){}", if err > 0 { format!(", {err} failed (see preview)") } else { String::new() });
+        self.forget_pending(&written);
         self.refilter();
     }
 
@@ -338,6 +382,9 @@ impl App {
                         self.items[i].embedded = Some(edited.trim().to_string());
                         self.items[i].status = Status::Written;
                         self.message = "saved edited lyrics".into();
+                        if self.items[i].found.take().is_some() {
+                            self.forget_pending(&[util::pending_key(&self.items[i].track.path)]);
+                        }
                     }
                     Err(e) => self.message = format!("save failed: {e:#}"),
                 }
@@ -494,6 +541,8 @@ impl App {
             }
             (KeyCode::Char('r'), _) => {
                 let rm: HashSet<usize> = self.targets().into_iter().collect();
+                let discarded =
+                    rm.iter().filter_map(|&i| self.items[i].found.as_ref().map(|_| util::pending_key(&self.items[i].track.path))).collect::<Vec<_>>();
                 let mut idx = 0;
                 self.items.retain(|_| {
                     let keep = !rm.contains(&idx);
@@ -503,6 +552,7 @@ impl App {
                 self.marked.clear();
                 self.refilter();
                 self.message = format!("removed {} from the list (files untouched)", rm.len());
+                self.forget_pending(&discarded);
             }
             (KeyCode::Char('t'), _) => {
                 self.cfg.write_tags = !self.cfg.write_tags;
@@ -785,4 +835,25 @@ fn help(f: &mut Frame) {
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn search_events_follow_track_ids_after_removal() -> Result<()> {
+        let mut app = App::new(Handle::current(), Config { providers: vec!["local_files".into()], ..Config::default() })?;
+        let track = Track { path: "remaining.flac".into(), query: Default::default(), has_lyrics: false, format: "flac".into() };
+        app.items.push(Item { id: 1, track, status: Status::Queued, found: None, embedded: None });
+        app.queued_total = 2;
+        for (idx, source) in [(1, "remaining"), (0, "removed")] {
+            app.tx.send(Event::Found { idx, lyrics: Box::new(Lyrics { source: source.into(), ..Lyrics::default() }) })?;
+        }
+        app.drain_events();
+        assert_eq!(app.items[0].found.as_ref().map(|lyrics| lyrics.source.as_str()), Some("remaining"));
+        assert_eq!(app.queued_done, app.queued_total);
+        assert_eq!(app.run_found, 1);
+        Ok(())
+    }
 }
