@@ -329,6 +329,11 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
                     eprintln!("  ⏭ {}: {provider} skipped ({reason})", tracks[idx].display_name());
                 }
             }
+            Event::Tried { idx, provider, result, millis } => {
+                if a.verbose && !a.json && result != "found" {
+                    eprintln!("  · {}: {provider}: {result} ({millis} ms)", tracks[idx].display_name());
+                }
+            }
             Event::Cancelled { .. } => {}
             Event::Challenge { provider, .. } => {
                 if !a.json {

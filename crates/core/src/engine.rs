@@ -16,6 +16,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::UnboundedSender, Semaphore};
 
+/// What [`Engine::find`] reports about one source.
+#[derive(Clone, Copy, Debug)]
+pub enum Step<'a> {
+    Trying,
+    Skipped(&'a str),
+    Done { result: &'a str, millis: u64 },
+}
+
 /// Progress events, keyed by the caller's item index.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -43,6 +51,14 @@ pub enum Event {
     Failed {
         idx: usize,
         notes: Vec<String>,
+    },
+    /// One source finished with this track: `result` is "found", "no match", a timeout or the error,
+    /// after `millis` of requests (time waiting for the source's turn not included).
+    Tried {
+        idx: usize,
+        provider: String,
+        result: String,
+        millis: u64,
     },
     /// A source needs a bot check passed (see [`providers::Challenge`]); announced once per site for a while.
     Challenge {
@@ -302,11 +318,12 @@ impl Engine {
         Ok(found)
     }
 
-    /// Try providers in order for one track; first usable result wins.
+    /// Try providers in order for one track; first usable result wins. `on_step` hears about every
+    /// source as it is started, skipped or done.
     ///
     /// Each provider gets one request budget for the whole track (all its query variants together);
     /// time spent waiting for its turn under the rate limiter does not count against it.
-    pub async fn find(&self, q: &Query, mut on_event: impl FnMut(&str, Option<&str>)) -> Outcome {
+    pub async fn find(&self, q: &Query, mut on_step: impl FnMut(&str, Step<'_>)) -> Outcome {
         let mut notes = Vec::new();
         let mut answered = 0usize;
         let not_worth_it = unsuitable(&q.artist, &q.title);
@@ -315,7 +332,7 @@ impl Engine {
             let id = p.id();
             if let Some(why) = not_worth_it.filter(|_| !NAME_FREE_SOURCES.contains(&id)) {
                 let why = format!("not searched: {why}");
-                on_event(id, Some(&why));
+                on_step(id, Step::Skipped(&why));
                 notes.push(format!("{id}: {why}"));
                 // a deliberate skip is an answer ("nothing to search for"), not a failure
                 answered += 1;
@@ -323,11 +340,11 @@ impl Engine {
             }
             if let Some(left) = self.penalty_remaining(id) {
                 let why = format!("penalised for another {}s", left.as_secs());
-                on_event(id, Some(&why));
+                on_step(id, Step::Skipped(&why));
                 notes.push(format!("{id}: {why}"));
                 continue;
             }
-            on_event(id, None);
+            on_step(id, Step::Trying);
             let budget = p.timeout().unwrap_or_else(|| Duration::from_secs(self.cfg.provider_timeout_secs.max(1)) * 2);
             let mut spent = Duration::ZERO;
             let mut failed = false;
@@ -354,6 +371,7 @@ impl Engine {
                         }
                         l.plain = l.embed_text();
                         self.record_success(id);
+                        on_step(id, Step::Done { result: "found", millis: spent.as_millis() as u64 });
                         return Outcome::Found(Box::new(l));
                     }
                     Ok(Ok(_)) => {}
@@ -382,6 +400,10 @@ impl Engine {
                 notes.push(if only_unsynced { format!("{id}: only unsynced lyrics (synced only is on)") } else { format!("{id}: no match") });
                 answered += 1;
             }
+            // this source's own note is the last one pushed
+            let prefix = format!("{id}: ");
+            let result = notes.last().and_then(|n| n.strip_prefix(&prefix)).unwrap_or("no match");
+            on_step(id, Step::Done { result, millis: spent.as_millis() as u64 });
         }
         if answered == 0 && !notes.is_empty() {
             return Outcome::Failed(notes);
@@ -408,10 +430,11 @@ impl Engine {
                 let txc = tx.clone();
                 // `find` takes a sync callback, so collect events through the channel directly.
                 let outcome = engine
-                    .find(&q, |provider, skipped| {
-                        let _ = match skipped {
-                            Some(reason) => txc.send(Event::Skipped { idx, provider: provider.into(), reason: reason.into() }),
-                            None => txc.send(Event::Trying { idx, provider: provider.into() }),
+                    .find(&q, |provider, step| {
+                        let _ = match step {
+                            Step::Skipped(reason) => txc.send(Event::Skipped { idx, provider: provider.into(), reason: reason.into() }),
+                            Step::Trying => txc.send(Event::Trying { idx, provider: provider.into() }),
+                            Step::Done { result, millis } => txc.send(Event::Tried { idx, provider: provider.into(), result: result.into(), millis }),
                         };
                     })
                     .await;
@@ -577,7 +600,13 @@ mod tests {
         }
         let calls = bad.calls();
         let mut skipped = Vec::new();
-        let out = e.find(&q("Queen", "Song"), |id, why| skipped.push((id.to_string(), why.map(String::from)))).await;
+        let out = e
+            .find(&q("Queen", "Song"), |id, step| match step {
+                Step::Skipped(why) => skipped.push((id.to_string(), Some(why.to_string()))),
+                Step::Trying => skipped.push((id.to_string(), None)),
+                Step::Done { .. } => {}
+            })
+            .await;
         assert_eq!(bad.calls(), calls, "a benched source is not called");
         assert!(skipped[0].1.as_deref().unwrap().starts_with("penalised"));
         assert!(matches!(out, Outcome::Failed(_)));

@@ -61,7 +61,8 @@ struct Probe {
 const PROBE_JS: &str = r#"(() => {
   const t = document.title || '';
   const byTitle = /just a moment|verify you are human|attention required|checking your browser|security check/i.test(t);
-  const byElement = !!document.querySelector('#challenge-form, #challenge-stage, #challenge-running, #cf-challenge-running, iframe[src*="challenges.cloudflare.com"]');
+  // Cloudflare, DuckDuckGo's "anomaly" check, and reCAPTCHA / hCaptcha walls (AZLyrics and others)
+  const byElement = !!document.querySelector('#challenge-form, #challenge-stage, #challenge-running, #cf-challenge-running, iframe[src*="challenges.cloudflare.com"], .anomaly-modal__modal, .anomaly-modal__mask, form[action*="anomaly"], .g-recaptcha, .h-captcha, iframe[src*="recaptcha"], iframe[src*="hcaptcha"]');
   const challenge = byTitle || byElement;
   const ready = document.readyState;
   const done = ready !== 'loading' && !challenge && !!document.body;

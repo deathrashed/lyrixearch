@@ -36,10 +36,9 @@ impl Provider for DuckDuckGo {
 
     async fn fetch(&self, http: &reqwest::Client, q: &Query, cfg: &Config) -> Result<Option<Lyrics>> {
         let url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding::encode(&format!("{} {} lyrics", q.artist, q.title)));
-        let html = get_html(http, &url, &[]).await?;
-        if html.contains("anomaly-modal") || html.contains("g-recaptcha") {
-            return Err(super::Challenge { url: url.clone(), reason: "DuckDuckGo is asking for a captcha".into() }.into());
-        }
+        // a captcha page comes back as a Challenge: the site is then searched through the app's
+        // browser, where the person can answer it once (Lyrics Finder shows a captcha dialog the same way)
+        let html = get_html(http, &url, &[("Referer", "https://html.duckduckgo.com/")]).await?;
         let links: Vec<String> = RESULT_LINK.captures_iter(&html).map(|c| unwrap_redirect(&c[1])).take(8).collect();
         for link in links {
             for p in &self.scrapers {

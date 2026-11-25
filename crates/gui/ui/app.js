@@ -381,7 +381,7 @@
     else if (d.embedded) { pre.className = 'lyrics'; pre.textContent = d.embedded; }
     else {
       pre.className = 'lyrics placeholder';
-      pre.textContent = t.status === 'notfound' ? 'No source had these lyrics. Try the Web tab, paste them in, or embed a matching .lrc or .txt file. Info lists what each source said.' : 'No lyrics yet.';
+      pre.textContent = t.status === 'notfound' ? 'No source had these lyrics. Try the Web tab, paste them in, or embed a matching .lrc or .txt file. Details shows what each source said.' : 'No lyrics yet.';
     }
     $('#act-embed').hidden = !d.found;
     $('#act-copy').disabled = !text;
@@ -392,10 +392,7 @@
     ta.value = d.found?.plain || d.embedded || '';
     ta.dataset.orig = ta.value;
 
-    const rows = [['Status', stateLabel(t)], ['Artist', t.artist], ['Title', t.title], ['Album', t.album || '—'], ['Duration', t.duration ? fmtTime(t.duration) : '—'], ['Format', (t.format || '').toUpperCase()], ['File', t.name], ['Folder', t.folder]];
-    if (d.found?.url) rows.push(['Source page', d.found.url]);
-    if (t.note) rows.push(['Sources', t.note]);
-    $('#info').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === 'Folder' || k === 'Source page' ? ' class="link"' : ''}>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('');
+    renderInfo(t, d);
 
     const q = $('#web-query');
     if (q.dataset.for !== String(t.id)) {
@@ -405,6 +402,105 @@
     }
     // a new track loads its own search instead of keeping the last track's page
     syncBrowser(S.webUrl === null);
+  }
+
+  // ───────────────────────── Tidy: text clean-ups that open in Edit ─────────────────────────
+  /** What the tools work on: the editor when it has unsaved changes, otherwise the shown lyrics. */
+  const editableText = () => { const ta = $('#edit-text'); return ta.value !== ta.dataset.orig ? ta.value : shownLyrics(); };
+  const TIDY = {
+    // every line followed by a blank line (a common scraping artefact): close the gaps, keep verses
+    spacing(t) {
+      const lines = t.replace(/\r\n?/g, '\n').split('\n');
+      const blanks = lines.filter((l) => !l.trim()).length;
+      if (blanks >= lines.length / 3) {
+        return t.replace(/\r\n?/g, '\n').replace(/\n[ \t]*\n(?![ \t]*\n)/g, '\n').replace(/\n([ \t]*\n){2,}/g, '\n\n').trim();
+      }
+      return t.replace(/\n([ \t]*\n){2,}/g, '\n\n').trim();
+    },
+    sections: (t) => t.split('\n').filter((l) => !/^\s*[\[(]\s*(verse|chorus|pre-?chorus|post-?chorus|bridge|intro|outro|hook|refrain|interlude|instrumental|solo|guitar solo|breakdown|coda|skit|spoken|part)\b[^\])]*[\])]\s*$/i.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+    timestamps: (t) => t.split('\n').map((l) => l.replace(/\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\]/g, '').replace(/<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>/g, '').replace(/^\[(ar|ti|al|by|offset|length|re|ve|au):[^\]]*\]$/i, '').trimEnd()).join('\n').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n').trim(),
+    credits: (t) => t.split('\n').filter((l) => !/^\s*(written by|writer|songwriters?|composer|composed by|lyricist|lyrics by|music by|produced by|producer|arranged by|作词|作詞|作曲|编曲|編曲)\s*[:：]/i.test(l)).join('\n').trim(),
+    spaces: (t) => t.split('\n').map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+  };
+
+  // ───────────────────────── Details tab: match, lyrics timeline, search trail, file ─────────────────────────
+  const LRC_TIME = /\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]/g;
+  /** Seconds of every timed line in LRC text. */
+  function lrcTimes(lrc) {
+    const out = [];
+    for (const line of String(lrc || '').split('\n')) {
+      if (!line.replace(LRC_TIME, '').trim()) continue; // a timestamp alone marks a pause, not a line
+      for (const m of line.matchAll(LRC_TIME)) out.push(Number(m[1]) * 60 + Number(m[2].replace(':', '.')));
+    }
+    return out.sort((a, b) => a - b);
+  }
+  const fmtBytes = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  const fmtMs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`);
+
+  function gauge(score) {
+    const pct = Math.round(Math.max(0, Math.min(1, score)) * 100);
+    const r = 26, c = 2 * Math.PI * r;
+    const tone = pct >= 90 ? 'var(--ok)' : pct >= 80 ? 'var(--accent)' : 'var(--led-amber)';
+    return `<svg class="gauge" viewBox="0 0 64 64" role="img" aria-label="Match ${pct}%"><circle cx="32" cy="32" r="${r}" class="track"/><circle cx="32" cy="32" r="${r}" class="fill" style="stroke:${tone};stroke-dasharray:${(c * pct / 100).toFixed(1)} ${c.toFixed(1)}"/><text x="32" y="37" text-anchor="middle">${pct}%</text></svg>`;
+  }
+
+  function trailTone(result) {
+    if (result === 'found') return 'on';
+    if (result === 'searching') return 'searching';
+    if (result.startsWith('skipped')) return 'off';
+    if (result === 'no match' || result.startsWith('only unsynced')) return 'idle';
+    return 'error';
+  }
+  function trailText(result) {
+    if (result === 'found') return 'Found';
+    if (result === 'searching') return 'Searching…';
+    if (result === 'no match') return 'No match';
+    return result.charAt(0).toUpperCase() + result.slice(1);
+  }
+
+  function renderInfo(t, d) {
+    const cards = [];
+    const f = d.found;
+    if (f || t.has_lyrics) {
+      const score = f ? f.score : t.score;
+      const src = f ? pname(f.source) : t.provider ? pname(t.provider) : 'In the file';
+      cards.push(`<section class="dx-card"><h3>Match</h3><div class="dx-match">${score ? gauge(score) : ''}<div class="dx-match-text">
+        <b>${esc(src)}</b>${f ? `<span>${esc(f.matched_artist)} — ${esc(f.matched_title)}</span>` : '<span>Lyrics embedded in the file</span>'}
+        ${f?.url ? `<a class="link" href="#" data-open="${esc(f.url)}">Open source page</a>` : ''}</div></div></section>`);
+    }
+    const text = f?.plain || d.embedded || '';
+    if (text) {
+      const lines = text.split('\n').filter((l) => l.trim());
+      const words = lines.reduce((n, l) => n + l.trim().split(/\s+/).length, 0);
+      const verses = text.split(/\n\s*\n/).filter((v) => v.trim()).length;
+      const times = lrcTimes(f?.synced || d.embedded_synced);
+      const dur = t.duration || (times.length ? times[times.length - 1] + 5 : 0);
+      let timeline = '';
+      if (times.length && dur) {
+        const ticks = times.map((s) => `<i style="left:${Math.min(100, (s / dur) * 100).toFixed(2)}%"></i>`).join('');
+        const playing = S.player && S.player.id === t.id && S.player.duration ? `<b class="dx-head" style="left:${Math.min(100, (S.player.position / S.player.duration) * 100).toFixed(2)}%"></b>` : '';
+        timeline = `<div class="dx-timeline" role="img" aria-label="${times.length} timed lines between ${fmtTime(times[0])} and ${fmtTime(times[times.length - 1])}">${ticks}${playing}</div>
+          <div class="dx-axis"><span>0:00</span><span>First line ${fmtTime(times[0])} · last ${fmtTime(times[times.length - 1])}</span><span>${fmtTime(dur)}</span></div>`;
+      }
+      const stat = (n, label) => `<div class="dx-stat"><b>${n}</b><span>${label}</span></div>`;
+      cards.push(`<section class="dx-card"><h3>Lyrics</h3><div class="dx-stats">${stat(lines.length, 'lines')}${stat(words, 'words')}${stat(verses, verses === 1 ? 'verse' : 'verses')}${stat(times.length ? 'Synced' : 'Plain', times.length ? `${times.length} timed lines` : 'no timing')}</div>${timeline}</section>`);
+    }
+    const trail = d.trail || [];
+    if (trail.length) {
+      const max = Math.max(1, ...trail.map((a) => a.millis));
+      const total = trail.reduce((n, a) => n + a.millis, 0);
+      const rows = trail.map((a) => `<li><i class="led ${trailTone(a.result)}" aria-hidden="true"></i><b>${esc(pname(a.provider))}</b>
+        <span class="dx-why" title="${esc(a.result)}">${esc(trailText(a.result))}</span>
+        <span class="dx-bar"><i style="width:${a.millis ? Math.max(3, (a.millis / max) * 100).toFixed(1) : 0}%"></i></span><span class="dx-ms">${a.millis ? fmtMs(a.millis) : ''}</span></li>`).join('');
+      cards.push(`<section class="dx-card"><h3>Search trail <span>${trail.length} source${trail.length === 1 ? '' : 's'} · ${fmtMs(total)}</span></h3><ul class="dx-trail">${rows}</ul></section>`);
+    } else if (t.note) {
+      cards.push(`<section class="dx-card"><h3>Last search</h3><p class="dx-note">${esc(t.note).replace(/\n/g, '<br>')}</p></section>`);
+    }
+    const rows = [['Artist', t.artist], ['Title', t.title], ['Album', t.album || '—'], ['Duration', t.duration ? fmtTime(t.duration) : '—'], ['Format', (t.format || '').toUpperCase()]];
+    if (d.size) rows.push(['Size', fmtBytes(d.size)]);
+    rows.push(['File', t.name], ['Folder', t.folder]);
+    cards.push(`<section class="dx-card"><h3>File</h3><dl class="info">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === 'Folder' ? ' class="link"' : ''}>${esc(v)}</dd>`).join('')}</dl></section>`);
+    $('#info').innerHTML = cards.join('');
   }
 
   function setTab(tab, focus = false) {
@@ -654,6 +750,21 @@
     return !r ? [] : Array.isArray(r) ? r : [r];
   }
 
+  // "Fetch new tracks automatically": tracks added while a fetch runs wait for it to finish
+  let autoQueue = [];
+  function autoFetch(ids) {
+    const todo = ids.filter((id) => S.replace || !S.tracks.get(id)?.has_lyrics);
+    if (!todo.length) return;
+    if (S.progress?.running) { autoQueue.push(...todo); return; }
+    startSearch(todo, true, S.replace);
+  }
+  function drainAutoQueue() {
+    if (!autoQueue.length || S.progress?.running) return;
+    const ids = autoQueue.filter((id) => S.tracks.has(id));
+    autoQueue = [];
+    if (ids.length) startSearch(ids, true, S.replace);
+  }
+
   /** Add files and folders to the list; returns the ids of the tracks that were new. */
   async function addPaths(paths) {
     if (!paths.length) return [];
@@ -664,6 +775,7 @@
       setTracks(res.tracks);
       const fresh = res.tracks.filter((t) => !known.has(t.id)).map((t) => t.id);
       toast(fresh.length > 0 ? `Added ${fresh.length} track${fresh.length === 1 ? '' : 's'}. ${res.stats.missing} missing lyrics.` : 'No new audio files found', fresh.length > 0 ? 'good' : '');
+      if (S.settings?.config.auto_fetch && fresh.length) autoFetch(fresh);
       return fresh;
     } catch (e) { toast(errText(e), 'bad', 7000); return []; }
   }
@@ -907,6 +1019,32 @@
     $('#act-edit').onclick = () => { setTab('edit', true); $('#edit-text').focus(); };
     $('#act-requeue').onclick = () => startSearch([tid()], false);
     $('#act-more').onclick = (e) => openFloating($('#track-pop'), e.currentTarget, '#tm-paste');
+    // Tidy: each change opens in the Edit tab for review (Revert undoes it, Save writes it)
+    $('#act-tools').onclick = (e) => {
+      const synced = S.detail?.found?.synced || S.detail?.embedded_synced;
+      $('[data-tool="copy-lrc"]').disabled = !synced;
+      $('[data-tool="timestamps"]').disabled = !/\[\d{1,3}:\d{2}/.test(editableText());
+      openFloating($('#tools-pop'), e.currentTarget);
+    };
+    $('#tools-pop').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-tool]');
+      if (!b || b.disabled) return;
+      closeFloating();
+      const tool = b.dataset.tool;
+      if (tool === 'copy-lrc' || tool === 'copy-plain') {
+        const text = tool === 'copy-lrc' ? (S.detail?.found?.synced || S.detail?.embedded_synced || '') : TIDY.timestamps(shownLyrics());
+        try { await clip.write(text); toast(tool === 'copy-lrc' ? 'Copied with timing (LRC)' : 'Copied as plain text', 'good'); } catch { toast('Clipboard unavailable', 'bad'); }
+        return;
+      }
+      const before = editableText();
+      const after = TIDY[tool](before);
+      if (after === before) { toast('Nothing to change'); return; }
+      const ta = $('#edit-text');
+      ta.value = after;
+      setTab('edit');
+      toast('Review the change, then Save. Revert undoes it.');
+    });
+    $('#tools-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { const a = S.pop?.anchor; closeFloating(); a?.focus(); } });
     // the file manager's own name, so the action says where the file will be shown
     const ua = navigator.userAgent;
     $('#tm-reveal-label').textContent = /Mac/.test(ua) ? 'Show in Finder' : /Windows/.test(ua) ? 'Show in Explorer' : 'Show in file manager';
@@ -1102,7 +1240,11 @@
       renderTop();
       if (S.active === t.id) { clearTimeout(wire._t); wire._t = setTimeout(() => setActive(t.id), 120); }
     });
-    T.event.listen('progress', (e) => { S.progress = e.payload; if (!e.payload.running) S.progressAt = Date.now(); renderTop(); });
+    T.event.listen('progress', (e) => {
+      S.progress = e.payload;
+      if (!e.payload.running) { S.progressAt = Date.now(); setTimeout(drainAutoQueue, 300); }
+      renderTop();
+    });
     T.event.listen('stats', () => recount());
     // A source wants a bot check passed: a browser window opens, solves itself if it can, and the engine reuses its cookies.
     // A source sits behind a bot check the hidden browser could not pass by itself: say so in the status
@@ -1133,7 +1275,28 @@
     T.event.listen('player', (e) => {
       S.player = e.payload;
       if (e.payload.state === 'error' && e.payload.error) toast(e.payload.error, 'bad', 6000);
-      if (S.active != null && e.payload.id === S.active) renderPlayer();
+      if (S.active != null && e.payload.id === S.active) {
+        renderPlayer();
+        // the playhead on the Details timeline
+        const head = $('#info .dx-head');
+        if (S.tab === 'info' && head && e.payload.duration) head.style.left = `${Math.min(100, (e.payload.position / e.payload.duration) * 100).toFixed(2)}%`;
+        else if (S.tab === 'info' && !head && e.payload.state === 'playing' && S.detail) renderInfo(activeTrack(), S.detail);
+      }
+    });
+    // a source finished for the shown track: refresh its search trail
+    let trailTimer = 0;
+    T.event.listen('trail', (e) => {
+      if (e.payload.id !== S.active) return;
+      clearTimeout(trailTimer);
+      trailTimer = setTimeout(async () => {
+        const id = S.active;
+        try { const d = await invoke('get_lyrics', { id }); if (S.active === id) { S.detail = d; renderInfo(activeTrack(), d); } } catch { /* track removed */ }
+      }, 250);
+    });
+    $('#info').addEventListener('click', (e) => {
+      const open = e.target.closest('[data-open]');
+      if (open) { e.preventDefault(); invoke('open_external', { url: open.dataset.open }).catch((err) => toast(errText(err), 'bad')); return; }
+      if (e.target.closest('dd.link') && S.active != null) invoke('reveal_track', { id: S.active }).catch((err) => toast(errText(err), 'bad'));
     });
 
     // drops on the window, and files handed over by the OS (dropped on the app icon, "Open with")

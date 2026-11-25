@@ -40,6 +40,17 @@ struct Entry {
     found: Option<Lyrics>,
     embedded: Option<String>,
     note: Option<String>,
+    /// The last search of this track, source by source (Info → search trail).
+    trail: Vec<Attempt>,
+}
+
+/// One source in a track's last search.
+#[derive(Serialize, Clone)]
+struct Attempt {
+    provider: String,
+    /// "searching" while it runs; then "found", "no match", "skipped: …", a timeout or the error
+    result: String,
+    millis: u64,
 }
 
 struct Inner {
@@ -207,7 +218,7 @@ async fn add_paths(app: AppHandle, state: State<'_, AppState>, paths: Vec<String
         let found = pending.get(&util::pending_key(&track.path)).cloned();
         let provider = found.as_ref().map(|lyrics| lyrics.source.clone());
         let status = if found.is_some() { Status::Found } else { Status::Idle };
-        inner.entries.push(Entry { id, track, status, provider, found, embedded, note: None });
+        inner.entries.push(Entry { id, track, status, provider, found, embedded, note: None, trail: Vec::new() });
     }
     Ok(list(&inner, skipped))
 }
@@ -264,6 +275,7 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
             };
             if picked && !busy && allowed {
                 e.status = Status::Queued;
+                e.trail.clear();
                 e.note = None;
                 work.push((e.id as usize, e.track.query.clone()));
             }
@@ -306,6 +318,7 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
             let id = match &ev {
                 Event::Trying { idx, .. }
                 | Event::Skipped { idx, .. }
+                | Event::Tried { idx, .. }
                 | Event::Found { idx, .. }
                 | Event::NotFound { idx, .. }
                 | Event::Failed { idx, .. }
@@ -316,10 +329,25 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                 Event::Trying { provider, .. } => {
                     set(&state, id, |e| {
                         e.status = Status::Searching;
+                        e.trail.push(Attempt { provider: provider.clone(), result: "searching".into(), millis: 0 });
                         e.provider = Some(provider);
                     });
                 }
-                Event::Skipped { .. } | Event::Challenge { .. } => continue,
+                Event::Skipped { provider, reason, .. } => {
+                    set(&state, id, |e| e.trail.push(Attempt { provider, result: format!("skipped: {reason}"), millis: 0 }));
+                    continue;
+                }
+                Event::Tried { provider, result, millis, .. } => {
+                    set(&state, id, |e| {
+                        if let Some(a) = e.trail.iter_mut().rev().find(|a| a.provider == provider && a.result == "searching") {
+                            a.result = result;
+                            a.millis = millis;
+                        }
+                    });
+                    let _ = app2.emit("trail", serde_json::json!({ "id": id }));
+                    continue;
+                }
+                Event::Challenge { .. } => continue,
                 Event::Cancelled { .. } => {
                     prog.done += 1;
                     set(&state, id, |e| e.status = Status::Idle);
@@ -439,6 +467,11 @@ fn cancel_search(state: State<'_, AppState>) {
 struct LyricsView {
     found: Option<FoundView>,
     embedded: Option<String>,
+    /// Timed lyrics stored in the file (ID3 SYLT / Vorbis SYNCEDLYRICS), for the Info timeline.
+    embedded_synced: Option<String>,
+    trail: Vec<Attempt>,
+    /// File size in bytes.
+    size: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -454,9 +487,16 @@ struct FoundView {
 
 #[tauri::command]
 fn get_lyrics(state: State<'_, AppState>, id: u64) -> Option<LyricsView> {
+    let path = state.0.lock().unwrap().entries.iter().find(|e| e.id == id)?.track.path.clone();
+    // file reads happen outside the lock
+    let embedded_synced = tags::read_synced(&path);
+    let size = std::fs::metadata(&path).ok().map(|m| m.len());
     let inner = state.0.lock().unwrap();
     let e = inner.entries.iter().find(|e| e.id == id)?;
     Some(LyricsView {
+        embedded_synced,
+        trail: e.trail.clone(),
+        size,
         found: e.found.as_ref().map(|l| FoundView {
             source: l.source.clone(),
             url: l.url.clone(),
@@ -1282,6 +1322,14 @@ fn browser_zoom(app: AppHandle, state: State<'_, AppState>, delta: f64) {
     }
 }
 
+/// Self-test progress, so a step that hangs shows in the log.
+#[tauri::command]
+fn selftest_step(step: String) {
+    if std::env::var_os("LYRIXEARCH_SELFTEST").is_some() {
+        eprintln!("SELFTEST step: {step}");
+    }
+}
+
 /// Used only by the built-in self-test (`LYRIXEARCH_SELFTEST=1`): prints what the UI observed
 /// together with the real state of the embedded browser webview, then quits.
 #[tauri::command]
@@ -1329,13 +1377,18 @@ fn selftest_report(app: AppHandle, info: String) {
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
 const SELFTEST_JS: &str = r#"
 (async () => {
-  const out = {};
+  const out = { jsErrors: [] };
+  window.addEventListener('error', (e) => out.jsErrors.push(String(e.message)));
+  window.addEventListener('unhandledrejection', (e) => out.jsErrors.push(String(e.reason && (e.reason.message || e.reason))));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const inv = (c, a) => window.__TAURI__.core.invoke(c, a || {});
+  const step = (s) => inv('selftest_step', { step: s }).catch(() => {});
+  step('start');
   try {
     out.tauri = !!window.__TAURI__;
     out.mock = !!window.__MOCK__;
-    await document.fonts.ready;
+    await Promise.race([document.fonts.ready, sleep(3000)]);
+    step('fonts');
     out.font = getComputedStyle(document.body).fontFamily.split(',')[0];
     out.layout = { inner: innerWidth, detail: Math.round(document.getElementById('detail').getBoundingClientRect().width), cssVar: getComputedStyle(document.getElementById('app')).getPropertyValue('--detail-w').trim(), saved: (() => { try { return localStorage.getItem('lf-detail-w'); } catch { return 'n/a'; } })() };
     const mark = document.querySelector('.mark');
@@ -1349,10 +1402,12 @@ const SELFTEST_JS: &str = r#"
 
     // search through the real command, with the camelCase argument the UI sends
     const plain = by(/plain/i) || tracks[0];
+    step(`tracks ${tracks.length}, searching ${plain && plain.name}`);
     await inv('search', { ids: [plain.id], autoWrite: false });
     for (let i = 0; i < 80; i++) { await sleep(500); const p = S.progress; if (p && !p.running && p.total > 0) break; }
     out.search = { status: S.tracks.get(plain.id).status, via: S.tracks.get(plain.id).provider, done: S.progress && S.progress.done };
 
+    step('searched');
     // cover thumbnail (embedded art)
     const cov = by(/cover/i);
     if (cov) { const c = await inv('get_cover', { id: cov.id }); out.cover = c ? c.slice(0, 23) + ' len=' + c.length : null; }
@@ -1361,6 +1416,7 @@ const SELFTEST_JS: &str = r#"
     const sc = by(/sidecar/i);
     if (sc) { out.sidecar = await inv('embed_sidecar', { ids: [sc.id] }); out.sidecarState = S.tracks.get(sc.id).has_lyrics; }
 
+    step('player');
     // player: decode, seek, play briefly, stop
     const pl = by(/player/i) || tracks[0];
     const events = [];
@@ -1377,11 +1433,40 @@ const SELFTEST_JS: &str = r#"
     await sleep(300);
     out.player = { loaded: loaded && { state: loaded.state, duration: loaded.duration, error: loaded.error }, playing: playing && { state: playing.state, pos: Math.round(playing.pos * 10) / 10, error: playing.error }, stopped: events[events.length - 1].state };
 
-    // the inspector, then the embedded browser
+    step('details');
+    // the inspector: Details (search trail, match, lyrics), then Tidy, then the embedded browser
     window.__lf.selectId(plain.id);
+    step('selected');
     await sleep(500);
+    step('slept');
+    document.querySelector('[data-tab=info]').click();
+    step('info clicked');
+    await sleep(600);
+    step('info shown');
+    const info = document.getElementById('info');
+    out.details = {
+      shown: !document.getElementById('tab-info').hidden,
+      cards: [...info.querySelectorAll('.dx-card h3')].map((h) => h.textContent.trim()),
+      trail: [...info.querySelectorAll('.dx-trail li')].map((li) => li.textContent.replace(/\s+/g, ' ').trim()),
+      gauge: !!info.querySelector('.gauge'),
+      stats: [...info.querySelectorAll('.dx-stat')].map((x) => x.textContent.replace(/\s+/g, ' ').trim()),
+    };
+    document.querySelector('[data-tab=lyrics]').click();
+    await sleep(300);
+    step('tools');
+    document.getElementById('act-tools').click();
+    await sleep(300);
+    step('tools open');
+    out.tidyMenu = !document.getElementById('tools-pop').hidden;
+    document.querySelector('[data-tool="spaces"]').click();
+    step('tidy clicked');
+    await sleep(400);
+    step('tidy done');
+    out.tidyOpensEdit = !document.getElementById('tab-edit').hidden;
     document.querySelector('[data-tab=web]').click();
+    step('web clicked');
     await sleep(4000);
+    step('web shown');
     const r = document.getElementById('webslot').getBoundingClientRect();
     out.slot = { x: r.left, y: r.top, w: r.width, h: r.height };
 
@@ -1400,7 +1485,9 @@ const SELFTEST_JS: &str = r#"
       await sleep(3000);
       out.desktopPressed = document.getElementById('web-mobile').getAttribute('aria-pressed');
     }
+    step('web done');
   } catch (e) { out.error = String((e && e.message) || e); }
+  step('challenge');
   try {
     // verification window: a page that sets cf_clearance should be picked up and the window closed by itself
     await inv('open_challenge', { url: 'https://httpbin.org/cookies/set?cf_clearance=selftest', provider: 'selftest' });
@@ -1514,6 +1601,7 @@ fn main() {
             web_search_url,
             open_external,
             selftest_report,
+            selftest_step,
             get_cover,
             reveal_track,
             embed_sidecar,
@@ -1612,7 +1700,7 @@ fn main() {
                             }
                         }
                         // Safety net: never hang if the UI cannot report back.
-                        std::thread::sleep(std::time::Duration::from_secs(90));
+                        std::thread::sleep(std::time::Duration::from_secs(180));
                         eprintln!("SELFTEST timed out waiting for the UI");
                         h.exit(2);
                     });

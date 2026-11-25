@@ -75,6 +75,13 @@ pub struct Config {
     pub tag_clean_enabled: bool,
     /// Extra regex removed from titles before searching (applied after the built-in clean-up).
     pub tag_clean_pattern: Option<String>,
+    /// Built-in sources this settings file has been offered. A source added in a later version is
+    /// switched on once (appended to `providers`), so new sources reach existing setups.
+    /// A file without this field predates it, so it knew the original sources.
+    #[serde(default = "original_builtins")]
+    pub known_providers: Vec<String>,
+    /// Desktop app: search tracks as soon as they are added to the list.
+    pub auto_fetch: bool,
     /// Desktop app: closing the window keeps the app running in the menu bar / tray.
     pub keep_running: bool,
     /// Desktop app: a system notification when a fetch finishes while the window is in the background.
@@ -83,6 +90,10 @@ pub struct Config {
     pub keep_awake: bool,
     /// Desktop app, macOS: a drop zone opens under the menu bar icon while files are dragged near it.
     pub drop_shelf: bool,
+}
+
+fn original_builtins() -> Vec<String> {
+    crate::providers::ORIGINAL_BUILTINS.iter().map(|s| s.to_string()).collect()
 }
 
 impl Default for Config {
@@ -112,6 +123,8 @@ impl Default for Config {
             lastfm_api_key: None,
             tag_clean_enabled: true,
             tag_clean_pattern: None,
+            known_providers: crate::providers::builtin_ids(),
+            auto_fetch: false,
             keep_running: true,
             notify_done: true,
             keep_awake: true,
@@ -172,12 +185,29 @@ impl Config {
     pub fn load_from(path: &Path) -> Result<Self> {
         match std::fs::read_to_string(path) {
             Ok(s) => {
-                let cfg: Self = toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
+                let mut cfg: Self = toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
                 cfg.validate().with_context(|| format!("checking {}", path.display()))?;
+                cfg.offer_new_providers();
                 Ok(cfg)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+        }
+    }
+
+    /// Switch on built-in sources added since this settings file was written (they go last), and
+    /// remember that every current source has now been offered.
+    pub fn offer_new_providers(&mut self) {
+        let removed = crate::providers::REMOVED_BUILTINS;
+        self.providers.retain(|p| !removed.contains(&p.as_str()));
+        self.known_providers.retain(|p| !removed.contains(&p.as_str()));
+        for id in crate::providers::builtin_ids() {
+            if !self.known_providers.contains(&id) {
+                if !self.providers.contains(&id) {
+                    self.providers.push(id.clone());
+                }
+                self.known_providers.push(id);
+            }
         }
     }
 
@@ -243,6 +273,7 @@ impl Config {
             "write_tags" => self.write_tags.to_string(),
             "sidecar" => format!("{:?}", self.sidecar).to_ascii_lowercase(),
             "keep_mtime" => self.keep_mtime.to_string(),
+            "auto_fetch" => self.auto_fetch.to_string(),
             "keep_running" => self.keep_running.to_string(),
             "notify_done" => self.notify_done.to_string(),
             "keep_awake" => self.keep_awake.to_string(),
@@ -277,6 +308,7 @@ impl Config {
             "write_tags" => self.write_tags = b(value)?,
             "sidecar" => self.sidecar = value.parse().map_err(|e: String| anyhow::anyhow!(e))?,
             "keep_mtime" => self.keep_mtime = b(value)?,
+            "auto_fetch" => self.auto_fetch = b(value)?,
             "keep_running" => self.keep_running = b(value)?,
             "notify_done" => self.notify_done = b(value)?,
             "keep_awake" => self.keep_awake = b(value)?,
@@ -302,6 +334,25 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_builtin_sources_reach_an_older_settings_file_once() {
+        // written before AZLyrics and Letras existed, listing sources since removed; genius turned off
+        let old = "providers = [\"lrclib\", \"netease\", \"lyricsfreak\", \"utaten\"]\n";
+        let dir = std::env::temp_dir().join(format!("lyrixearch-cfg-migrate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, old).unwrap();
+        let mut c = Config::load_from(&path).unwrap();
+        assert_eq!(c.providers, ["lrclib", "lyricsfreak", "azlyrics", "letras"], "removed sources go, new ones are added");
+        assert!(!c.providers.contains(&"genius".to_string()), "a source the person turned off stays off");
+        // once offered, turning a new one off sticks
+        c.providers.retain(|p| p != "azlyrics");
+        std::fs::write(&path, toml::to_string(&c).unwrap()).unwrap();
+        let again = Config::load_from(&path).unwrap();
+        assert!(!again.providers.contains(&"azlyrics".to_string()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lyrixearch-cfg-{tag}-{}", std::process::id()));

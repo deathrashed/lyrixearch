@@ -53,6 +53,7 @@
         row('concurrency', 'Simultaneous searches', 'Tracks searched at the same time', rng('concurrency', 1, 20, 1)),
         row('provider_timeout_secs', 'Source timeout', 'Seconds to wait for one source before moving on', rng('provider_timeout_secs', 2, 30, 1, (v) => `${v} s`)),
         row('min_score', 'Match strictness', 'How closely a result must match the track', rng('min_score', 0.5, 1, 0.05, (v) => `${Math.round(v * 100)}%`)),
+        row('auto_fetch', 'Fetch new tracks automatically', 'Search tracks as soon as they are added, and embed what is found', sw('auto_fetch')),
         row('synced_only', 'Synced lyrics only', 'Accept only results with timed lines', sw('synced_only')),
       ]) + group('Track names', [
         row('tag_clean_enabled', 'Clean track titles', 'Ignore labels like (Remastered 2011) or [Live] when searching', sw('tag_clean_enabled')),

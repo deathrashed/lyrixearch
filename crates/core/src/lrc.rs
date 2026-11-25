@@ -10,7 +10,8 @@ static META_LINE: Lazy<Regex> =
 /// `[id:$00000000]`, `[hash:...]`, `[total:320317]`: header tags that some sources leave in the text.
 static TAG_LINE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*\[[A-Za-z#]+:[^\]]*\]\s*$").unwrap());
 
-/// Credit labels that NetEase, QQ and Kugou put on the first lines of a lyric (lyricist, composer, ...).
+/// Credit labels some sources put on the first lines of a lyric (lyricist, composer, ...), in
+/// English, Chinese and Japanese, as they also turn up in LRCLIB entries.
 static CREDIT_LINE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^\s*(作词|作詞|作曲|编曲|編曲|制作人|製作人|制作|监制|混音|母带|录音|演唱|歌手|原唱|和声|词|曲|纯音乐，?请欣赏|纯音乐|此歌曲为没有填词的纯音乐)\s*([:：].*)?$").unwrap()
 });

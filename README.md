@@ -159,15 +159,15 @@ Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixe
 | `local_files` | `.lrc` / `.txt` next to the track or in a `Lyrics/` folder |
 | `genius` | plain lyrics from the public song page |
 | `lrclib` | open database, **synced** lyrics |
+| `azlyrics` | plain lyrics, large English catalogue (its captcha is answered in the desktop app) |
+| `letras` | large catalogue, strong for Portuguese and Spanish music (pages load in the desktop app's browser) |
 | `lyricsfreak` | plain lyrics |
 | `darklyrics` | metal lyrics, album pages (plain http only) |
 | `ddg_search` | web-search fallback: finds a page one of the scrapers understands |
-| `netease`, `qqmusic`, `kugou` | unofficial public endpoints, **synced** lyrics |
-| `utaten` | Japanese lyrics, only asked for Japanese titles |
 | `bandcamp` | lyrics the artist published on the track page |
 | `lyrics_ovh` | exact-name API |
 
-Per track, sources are tried in order, each with one time budget for the track; sources that keep failing, or that ask to slow down, are skipped for a while. A title that finds nothing is retried without trailing brackets, and a "Various Artists" track with its album artist. Tracks whose names are placeholders ("Track 01", "Unknown Artist") are only matched against lyrics files next to them. With a Last.fm API key set (`lastfm_api_key`), misspelled artist and title names are corrected before searching. Ten tracks are searched at once by default. Sources that show a captcha or browser check (DuckDuckGo, and any page behind Cloudflare) open a verification window in the desktop app; the cookies from it are reused for the rest of the search. Not yet included: AZLyrics, Letras and Uta-Net (all three sit behind bot checks), and Musixmatch (needs a private signed token).
+Per track, sources are tried in order, each with one time budget for the track; sources that keep failing, or that ask to slow down, are skipped for a while. A title that finds nothing is retried without trailing brackets, and a "Various Artists" track with its album artist. Tracks whose names are placeholders ("Track 01", "Unknown Artist") are only matched against lyrics files next to them. With a Last.fm API key set (`lastfm_api_key`), misspelled artist and title names are corrected before searching. Ten tracks are searched at once by default. Sites that show a captcha or bot check (DuckDuckGo, AZLyrics, anything behind Cloudflare) are loaded in a hidden browser inside the desktop app; when a check needs a person, the status line offers Verify, and the rest of the search reuses the pass. DuckDuckGo is asked at most once every 2.5 seconds. The CLI has no browser, so it reports those sites and moves on. Not included: Musixmatch, Spotify and Apple Music, whose lyrics need a private app token or a signed-in account.
 
 ## <img src="https://api.iconify.design/mdi/puzzle-outline.svg?color=%235fe27f" height="22" alt=""> Plugins
 

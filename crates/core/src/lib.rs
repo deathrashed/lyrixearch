@@ -19,7 +19,7 @@ pub mod tags;
 pub mod util;
 
 pub use config::{Config, Sidecar};
-pub use engine::{Applied, Engine, Event, Outcome};
+pub use engine::{Applied, Engine, Event, Outcome, Step};
 pub use model::{Lyrics, Query, Track};
 pub use output::SidecarEmbed;
 

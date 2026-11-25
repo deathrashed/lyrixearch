@@ -11,25 +11,23 @@ use crate::model::{Lyrics, Query};
 use async_trait::async_trait;
 use std::sync::Arc;
 
+mod azlyrics;
 mod bandcamp;
 mod darklyrics;
 mod ddg;
 mod genius;
-mod kugou;
+mod letras;
 mod local;
 pub use local::{find_sidecar, find_sidecar_kind};
 mod lrclib;
 mod lyricsfreak;
-mod netease;
 mod ovh;
 pub mod plugin;
-mod qq;
-mod utaten;
 pub mod web;
 
 #[async_trait]
 pub trait Provider: Send + Sync {
-    /// Stable id used in config and output (`lrclib`, `netease`, ...).
+    /// Stable id used in config and output (`lrclib`, `genius`, ...).
     fn id(&self) -> &str;
 
     /// `Ok(None)` means "searched fine, nothing suitable". `Err` means the provider itself
@@ -68,25 +66,17 @@ pub fn all(plugins_dir: &std::path::Path) -> Vec<Arc<dyn Provider>> {
     let genius: Arc<dyn Provider> = Arc::new(genius::Genius);
     let lyricsfreak: Arc<dyn Provider> = Arc::new(lyricsfreak::LyricsFreak);
     let darklyrics: Arc<dyn Provider> = Arc::new(darklyrics::DarkLyrics);
-    let utaten: Arc<dyn Provider> = Arc::new(utaten::UtaTen);
     let bandcamp: Arc<dyn Provider> = Arc::new(bandcamp::Bandcamp);
+    let azlyrics: Arc<dyn Provider> = Arc::new(azlyrics::AzLyrics);
+    let letras: Arc<dyn Provider> = Arc::new(letras::Letras);
+    // Letras' song pages refuse plain HTTP clients outright (Akamai), so they always load in the browser
+    web::route_through_browser(letras::BASE);
+    web::route_through_browser("https://www.letras.mus.br/");
     // every scraper that can read a page straight from a URL; the web search hands results to them
-    let scrapers = vec![genius.clone(), lyricsfreak.clone(), darklyrics.clone(), utaten.clone(), bandcamp.clone()];
+    let scrapers = vec![genius.clone(), azlyrics.clone(), letras.clone(), lyricsfreak.clone(), darklyrics.clone(), bandcamp.clone()];
     let ddg: Arc<dyn Provider> = Arc::new(ddg::DuckDuckGo { scrapers });
-    let mut v: Vec<Arc<dyn Provider>> = vec![
-        Arc::new(local::LocalFiles),
-        genius,
-        Arc::new(lrclib::Lrclib),
-        lyricsfreak,
-        darklyrics,
-        ddg,
-        Arc::new(netease::Netease),
-        Arc::new(qq::QqMusic),
-        Arc::new(kugou::Kugou),
-        utaten,
-        bandcamp,
-        Arc::new(ovh::LyricsOvh),
-    ];
+    let mut v: Vec<Arc<dyn Provider>> =
+        vec![Arc::new(local::LocalFiles), Arc::new(lrclib::Lrclib), genius, lyricsfreak, darklyrics, bandcamp, Arc::new(ovh::LyricsOvh), azlyrics, letras, ddg];
     let (plugins, _broken) = plugin::discover(plugins_dir);
     for p in plugins {
         // A plugin may not shadow a built-in id.
@@ -127,19 +117,29 @@ const fn builtin(id: &'static str, name: &'static str, note: &'static str, infli
 /// Politeness: searching many tracks at once multiplies requests per source, and small sites answer
 /// that with captchas and 429s, so the polite sources get one or two at a time with a pause between.
 pub const BUILTINS: &[Builtin] = &[
+    // fast APIs first; sites that load in the app's browser (several seconds a page) after them;
+    // the web search last, as it only helps when the others miss
     builtin("local_files", "Local files", ".lrc / .txt next to the track, or in a Lyrics folder", 64, 0),
-    builtin("genius", "Genius", "Plain lyrics, wide catalogue", 2, 500),
     builtin("lrclib", "LRCLIB", "Open database with synced lyrics", 4, 100),
+    builtin("genius", "Genius", "Plain lyrics, wide catalogue", 2, 500),
     builtin("lyricsfreak", "LyricsFreak", "Plain lyrics", 2, 400),
     builtin("darklyrics", "DarkLyrics", "Metal lyrics, album pages", 1, 800),
-    builtin("ddg_search", "Web search (DuckDuckGo)", "Finds a supported page when the others miss", 1, 1000),
-    builtin("netease", "NetEase Cloud Music", "Synced lyrics, strong for Asian music", 3, 200),
-    builtin("qqmusic", "QQ Music", "Synced lyrics", 3, 200),
-    builtin("kugou", "Kugou", "Synced lyrics", 3, 200),
-    builtin("utaten", "UtaTen", "Japanese lyrics (only asked for Japanese titles)", 2, 400),
     builtin("bandcamp", "Bandcamp", "Lyrics published by the artist on the track page", 2, 400),
     builtin("lyrics_ovh", "lyrics.ovh", "Plain lyrics, exact names only", 2, 400),
+    builtin("azlyrics", "AZLyrics", "Plain lyrics, large English catalogue", 1, 1500),
+    builtin("letras", "Letras", "Large catalogue, strong for Portuguese and Spanish music", 1, 800),
+    builtin("ddg_search", "Web search (DuckDuckGo)", "Finds a supported page when the others miss", 1, 2500),
 ];
+
+/// The built-in sources before AZLyrics and Letras were added. A settings file written then
+/// lists its sources explicitly, so sources added since are switched on when it is loaded; ones the
+/// person had already seen and turned off stay off (see `Config::known_providers`).
+pub const ORIGINAL_BUILTINS: &[&str] =
+    &["local_files", "genius", "lrclib", "lyricsfreak", "darklyrics", "ddg_search", "netease", "qqmusic", "kugou", "utaten", "bandcamp", "lyrics_ovh"];
+
+/// Sources that were built in and have been taken out (the Chinese and Japanese sources). They are
+/// dropped from a settings file's source list when it is loaded.
+pub const REMOVED_BUILTINS: &[&str] = &["netease", "qqmusic", "kugou", "utaten", "utanet"];
 
 /// Ids of the built-in sources in default search order.
 pub fn builtin_ids() -> Vec<String> {

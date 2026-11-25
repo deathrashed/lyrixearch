@@ -249,7 +249,7 @@ impl App {
                     self.queued_done += 1;
                     *idx
                 }
-                Event::Skipped { .. } => continue,
+                Event::Skipped { .. } | Event::Tried { .. } => continue,
                 Event::Challenge { provider, .. } => {
                     self.message = format!("{provider} wants a bot check passed: the desktop app opens a window for that");
                     continue;
@@ -278,7 +278,7 @@ impl App {
                     item.status = Status::NotFound(notes.join("; "));
                 }
                 Event::Cancelled { .. } => item.status = Status::Idle,
-                Event::Skipped { .. } | Event::Challenge { .. } => unreachable!(),
+                Event::Skipped { .. } | Event::Tried { .. } | Event::Challenge { .. } => unreachable!(),
             }
         }
     }

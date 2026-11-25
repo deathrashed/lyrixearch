@@ -84,6 +84,9 @@ async fn plain_get(http: &reqwest::Client, url: &str, headers: &[(&str, &str)]) 
     if body.contains("_cf_chl_opt") || body.contains("cf-challenge") {
         return Err(super::Challenge { url: url.to_string(), reason: "blocked by a Cloudflare challenge".into() }.into());
     }
+    if let Some(reason) = bot_wall(&body) {
+        return Err(super::Challenge { url: url.to_string(), reason: reason.into() }.into());
+    }
     if status.as_u16() == 503 {
         // busy: honour Retry-After when sent, otherwise back off for a minute
         return Err(retry_hint.unwrap_or(super::RateLimited { retry_after: std::time::Duration::from_secs(60), reason: "busy (HTTP 503)".into() }).into());
@@ -100,6 +103,19 @@ async fn plain_get(http: &reqwest::Client, url: &str, headers: &[(&str, &str)]) 
     Ok(body)
 }
 
+/// Captcha pages that are not Cloudflare's: such a site is then loaded in the app's browser, where
+/// the person can pass the check (see [`BrowserFetch`]).
+fn bot_wall(body: &str) -> Option<&'static str> {
+    if body.contains("anomaly-modal") || body.contains("anomaly.js") {
+        Some("DuckDuckGo is asking to confirm a person is searching")
+    } else if body.contains("g-recaptcha") || body.contains("h-captcha") || body.contains("detected unusual activity") {
+        Some("the site is asking for a captcha")
+    } else {
+        None
+    }
+}
+
+static SOURCE_BREAK: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]*\r?\n[ \t]*").unwrap());
 static BR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
 static BLOCK_END: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</(p|div|h\d|li)\s*>|<(p|div|h\d|li)(\s[^>]*)?>").unwrap());
 static TAG: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<[^>]*>").unwrap());
@@ -107,11 +123,14 @@ static BLANKS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\n{3,}").unwrap());
 
 /// HTML fragment -> plain text with line breaks preserved.
 pub fn html_to_text(html: &str) -> String {
-    let s = BR.replace_all(html, "\n");
+    // line breaks in HTML source are just spaces (as a browser shows them); only <br> and block
+    // tags break lines. Keeping both doubled every line on pages written as "line<br>\nline".
+    let s = SOURCE_BREAK.replace_all(html, " ");
+    let s = BR.replace_all(&s, "\n");
     let s = BLOCK_END.replace_all(&s, "\n");
     let s = TAG.replace_all(&s, "");
     let s = html_escape::decode_html_entities(&s).replace('\u{a0}', " ");
-    let lines: Vec<&str> = s.lines().map(str::trim_end).collect();
+    let lines: Vec<&str> = s.lines().map(str::trim).collect();
     BLANKS.replace_all(lines.join("\n").trim(), "\n\n").into_owned()
 }
 
