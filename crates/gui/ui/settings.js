@@ -18,6 +18,7 @@
     files: ['Files', 'What is written into your music files'],
     appearance: ['Appearance', 'Theme, colour and size'],
     plugins: ['Plugins', 'Scripts that act as extra sources'],
+    accounts: ['Accounts', 'Lyrics from services you have an account with. You sign in on their own page; the app never sees your password'],
     diagnostics: ['Diagnostics', 'Checks to run when something does not work, and a report to share'],
     about: ['About', ''],
   };
@@ -106,6 +107,15 @@
         : '<p class="sw-empty">No plugins installed yet.</p>'}</div>
         <div class="sw-actions"><button class="btn" id="plugin-install">${icon('plug')}<span>Install plugin folder…</span></button></div>
         <p class="sw-note">Plugins live in <code>${esc(settings.plugins_dir)}</code>. See docs/PLUGINS.md for the protocol.</p>`;
+    } else if (section === 'accounts') {
+      body.innerHTML = `<div class="sw-card">${ACCOUNTS.map((a) => `<div class="sw-row" data-acct="${a.id}">
+          <div class="sw-label"><b>${esc(a.name)}</b><span class="acct-status" id="acct-${a.id}">${acctText(a.id)}</span></div>
+          <div class="sw-ctl acct-ctl">
+            <span class="switch" title="Use ${esc(a.name)} as a source"><input type="checkbox" data-acct-use="${a.id}" aria-label="Use ${esc(a.name)} as a source" ${draft.providers.includes(a.id) ? 'checked' : ''}><i></i></span>
+            <button class="btn sm" data-acct-go="${a.id}">${acctState[a.id]?.signedIn ? 'Sign out' : 'Sign in…'}</button>
+          </div></div>`).join('')}</div>
+        <p class="sw-note">Signing in opens the service's own page in a window of this app. Lookups then run in that signed-in page, hidden, using the service's web player; it closes again after two minutes without lookups. Apple Music needs a subscription. The CLI cannot use these accounts.</p>`;
+      for (const a of ACCOUNTS) if (!acctState[a.id]) checkAccount(a.id);
     } else if (section === 'diagnostics') {
       body.innerHTML = `<div class="sw-card"><ul class="diag" id="diag"><li class="sw-empty">Checking…</li></ul></div>
         <div class="sw-actions"><button class="btn" id="diag-run">${icon('refresh')}<span>Check again</span></button><button class="btn" id="test-sources">${icon('globe')}<span>Test all sources</span></button><button class="btn" id="diag-copy">${icon('copy')}<span>Copy report</span></button><button class="btn" id="diag-reveal">${icon('reveal')}<span>${IS_MAC ? 'Show settings file in Finder' : 'Show settings file'}</span></button></div>
@@ -120,6 +130,25 @@
       (T.app?.getVersion ? T.app.getVersion() : Promise.resolve('')).then((v) => { if (v) $('#about-version').textContent = `Version ${v}`; }).catch(() => {});
     }
     $$('[data-icon]', body).forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
+  }
+
+  // ───────── accounts ─────────
+  let ACCOUNTS = [];
+  const acctState = {};
+  const acctText = (id) => {
+    const st = acctState[id];
+    if (!st || st.checking) return 'Checking…';
+    if (st.signedIn) return st.name ? `Signed in as ${esc(st.name)}` : 'Signed in';
+    return st.error ? `Not signed in (${esc(st.error)})` : 'Not signed in';
+  };
+  async function checkAccount(id) {
+    const was = acctState[id]?.signedIn;
+    acctState[id] = { ...(acctState[id] || {}), checking: true };
+    if (section === 'accounts') render();
+    try { acctState[id] = await invoke('account_status', { id }); } catch (e) { acctState[id] = { signedIn: false, error: errText(e) }; }
+    // just signed in: use it as a source
+    if (acctState[id].signedIn && was === false && !draft.providers.includes(id)) { draft.providers.push(id); scheduleSave(); toast(`${ACCOUNTS.find((a) => a.id === id)?.name} is now a source`); }
+    if (section === 'accounts') render();
   }
 
   // ───────── diagnostics ─────────
@@ -178,6 +207,12 @@
     body.addEventListener('change', (e) => {
       const t = e.target;
       if (t.dataset.k === '__scale') { store.set('lf-scale', t.value); invoke('set_ui_scale', { scale: Number(t.value) }).catch((err) => toast(errText(err), 'bad')); return; }
+      if (t.dataset.acctUse) {
+        const id = t.dataset.acctUse;
+        if (t.checked) { if (!draft.providers.includes(id)) draft.providers.push(id); } else draft.providers = draft.providers.filter((p) => p !== id);
+        scheduleSave();
+        return;
+      }
       const li = t.closest('.sw-plist li');
       if (li && t.type === 'checkbox' && section === 'sources') {
         const id = li.dataset.id;
@@ -215,6 +250,22 @@
           ul.innerHTML = res.map((r) => `<li><i class="led ${r.ok ? 'on' : 'error'}" aria-hidden="true"></i><b>${esc(name(r.id))}</b><span class="grow">${r.ok ? 'Working' : esc(r.detail)}</span><span class="sw-note">${r.millis} ms</span></li>`).join('');
         } catch (err) { ul.innerHTML = `<li>${esc(errText(err))}</li>`; }
       }
+      const go = e.target.closest('[data-acct-go]');
+      if (go) {
+        const id = go.dataset.acctGo;
+        if (acctState[id]?.signedIn) {
+          go.disabled = true;
+          try { await invoke('account_sign_out', { id }); } catch (err) { toast(errText(err), 'bad'); }
+          acctState[id] = { signedIn: false };
+          draft.providers = draft.providers.filter((p) => p !== id);
+          scheduleSave();
+          render();
+        } else {
+          acctState[id] = { signedIn: false };
+          invoke('account_sign_in', { id }).catch((err) => toast(errText(err), 'bad'));
+        }
+        return;
+      }
       if (e.target.closest('#diag-run')) { runDiagnostics(); return; }
       if (e.target.closest('#diag-reveal')) { invoke('reveal_config').catch((err) => toast(errText(err), 'bad')); return; }
       if (e.target.closest('#diag-copy')) {
@@ -234,6 +285,8 @@
         } catch (err) { toast(errText(err), 'bad'); }
       }
     });
+    // a sign-in window was closed: look again
+    T.event.listen('accounts-changed', () => { for (const a of ACCOUNTS) checkAccount(a.id); });
     // the main window saved settings too (library folders): keep its changes in this draft
     T.event.listen('settings-changed', (e) => {
       settings = e.payload;
@@ -249,6 +302,7 @@
     applyAppearance();
     $$('.sw-nav [data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
     settings = await invoke('get_settings');
+    ACCOUNTS = await invoke('account_list').catch(() => []);
     draft = JSON.parse(JSON.stringify(settings.config));
     wire();
     render();

@@ -1,6 +1,7 @@
 // Prevents an extra console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod accounts;
 mod background;
 mod browser;
 #[cfg(target_os = "linux")]
@@ -1101,6 +1102,35 @@ fn diagnose(app: AppHandle, state: State<'_, AppState>) -> Vec<Check> {
     out
 }
 
+// ───────────────────────────── accounts (Settings → Accounts) ─────────────────────────────
+
+#[tauri::command]
+fn account_list() -> Vec<serde_json::Value> {
+    accounts::list()
+}
+
+/// `{ signedIn, name }` for one service; signing in happens on the service's own page.
+#[tauri::command]
+async fn account_status(accounts: State<'_, std::sync::Arc<accounts::Accounts>>, id: String) -> CmdResult<serde_json::Value> {
+    match accounts.run(&id, "status", serde_json::json!({}), std::time::Duration::from_secs(20)).await {
+        Ok(v) => Ok(v),
+        Err(e) => Ok(serde_json::json!({ "signedIn": false, "error": format!("{e:#}") })),
+    }
+}
+
+#[tauri::command]
+fn account_sign_in(app: AppHandle, id: String) -> CmdResult<()> {
+    accounts::Accounts::sign_in(&app, &id).map_err(err)
+}
+
+#[tauri::command]
+async fn account_sign_out(app: AppHandle, accounts: State<'_, std::sync::Arc<accounts::Accounts>>, id: String) -> CmdResult<()> {
+    accounts.run(&id, "signout", serde_json::json!({}), std::time::Duration::from_secs(15)).await.map_err(err)?;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let _ = app.emit("accounts-changed", ());
+    Ok(())
+}
+
 /// Show the settings file in Finder / the file manager.
 #[tauri::command]
 fn reveal_config() -> CmdResult<()> {
@@ -1638,6 +1668,10 @@ fn main() {
             open_settings,
             diagnose,
             reveal_config,
+            account_list,
+            account_status,
+            account_sign_in,
+            account_sign_out,
             set_ui_scale,
             web_search_url,
             open_external,
@@ -1662,6 +1696,11 @@ fn main() {
             app.manage(player::Player::start(app.handle().clone()));
             // sources behind bot checks load their pages through a hidden browser window
             lyrixearch_core::providers::web::set_browser(std::sync::Arc::new(browser::HiddenBrowser::new(app.handle().clone())));
+            // signed-in sessions for Spotify, Apple Music and Deezer (Settings → Accounts)
+            let accounts = std::sync::Arc::new(accounts::Accounts::new(app.handle().clone()));
+            lyrixearch_core::providers::accounts::set_bridge(accounts.clone());
+            accounts::Accounts::start_idle_close(accounts.clone());
+            app.manage(accounts);
             {
                 use tauri::Listener;
                 let h = app.handle().clone();

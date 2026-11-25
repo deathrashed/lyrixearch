@@ -100,7 +100,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             // Same order the original ships with, restricted to sources this build implements.
-            providers: crate::providers::builtin_ids(),
+            providers: crate::providers::default_ids(),
             concurrency: 10,
             provider_timeout_secs: 8,
             penalty_max_failures: 3,
@@ -201,9 +201,11 @@ impl Config {
         let removed = crate::providers::REMOVED_BUILTINS;
         self.providers.retain(|p| !removed.contains(&p.as_str()));
         self.known_providers.retain(|p| !removed.contains(&p.as_str()));
+        let defaults = crate::providers::default_ids();
         for id in crate::providers::builtin_ids() {
             if !self.known_providers.contains(&id) {
-                if !self.providers.contains(&id) {
+                // a new source that needs an account is offered in Settings → Accounts, not switched on
+                if defaults.contains(&id) && !self.providers.contains(&id) {
                     self.providers.push(id.clone());
                 }
                 self.known_providers.push(id);

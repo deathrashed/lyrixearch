@@ -11,6 +11,7 @@ use crate::model::{Lyrics, Query};
 use async_trait::async_trait;
 use std::sync::Arc;
 
+pub mod accounts;
 mod azlyrics;
 mod bandcamp;
 mod darklyrics;
@@ -89,6 +90,10 @@ pub fn all(plugins_dir: &std::path::Path) -> Vec<Arc<dyn Provider>> {
         letras,
         ddg,
     ];
+    // the account sources: only used once switched on (Settings → Accounts signs in and enables them)
+    for (id, name) in accounts::SERVICES {
+        v.push(Arc::new(accounts::AccountSource { id, name }));
+    }
     let (plugins, _broken) = plugin::discover(plugins_dir);
     for p in plugins {
         // A plugin may not shadow a built-in id.
@@ -118,10 +123,16 @@ pub struct Builtin {
     pub inflight: usize,
     /// Minimum gap between request starts, in milliseconds.
     pub gap_ms: u64,
+    /// In the default source list. The account sources are not: they need signing in first.
+    pub default_on: bool,
 }
 
 const fn builtin(id: &'static str, name: &'static str, note: &'static str, inflight: usize, gap_ms: u64) -> Builtin {
-    Builtin { id, name, note, inflight, gap_ms }
+    Builtin { id, name, note, inflight, gap_ms, default_on: true }
+}
+
+const fn account(id: &'static str, name: &'static str, note: &'static str) -> Builtin {
+    Builtin { id, name, note, inflight: 1, gap_ms: 300, default_on: false }
 }
 
 /// Every built-in source, in the default search order (the original's order).
@@ -143,6 +154,9 @@ pub const BUILTINS: &[Builtin] = &[
     builtin("azlyrics", "AZLyrics", "Plain lyrics, large English catalogue", 1, 1500),
     builtin("letras", "Letras", "Large catalogue, strong for Portuguese and Spanish music", 1, 800),
     builtin("ddg_search", "Web search (DuckDuckGo)", "Finds a supported page when the others miss", 1, 2500),
+    account("spotify", "Spotify", "Synced lyrics, with your Spotify account (Settings → Accounts)"),
+    account("apple_music", "Apple Music", "Synced lyrics, with an Apple Music subscription (Settings → Accounts)"),
+    account("deezer", "Deezer", "Synced lyrics, with your Deezer account (Settings → Accounts)"),
 ];
 
 /// The built-in sources before AZLyrics and Letras were added. A settings file written then
@@ -158,6 +172,11 @@ pub const REMOVED_BUILTINS: &[&str] = &["netease", "qqmusic", "kugou", "utaten",
 /// Ids of the built-in sources in default search order.
 pub fn builtin_ids() -> Vec<String> {
     BUILTINS.iter().map(|b| b.id.to_string()).collect()
+}
+
+/// The sources a new settings file starts with (every built-in except the account ones).
+pub fn default_ids() -> Vec<String> {
+    BUILTINS.iter().filter(|b| b.default_on).map(|b| b.id.to_string()).collect()
 }
 
 /// Every source available (built-ins plus plugins), with human-readable names.
@@ -251,7 +270,7 @@ mod tests {
         let empty = std::env::temp_dir().join(format!("lyrixearch-no-plugins-{}", std::process::id()));
         let ids: Vec<String> = all(&empty).iter().map(|p| p.id().to_string()).collect();
         assert_eq!(ids, builtin_ids(), "all() and BUILTINS must list the same sources in the same order");
-        assert_eq!(crate::config::Config::default().providers, builtin_ids());
+        assert_eq!(crate::config::Config::default().providers, default_ids(), "a new setup starts without the account sources");
     }
 
     #[test]
