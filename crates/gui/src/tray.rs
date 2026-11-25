@@ -31,7 +31,7 @@ pub struct Tray {
 /// white or dark letters elsewhere. The state is then only in the tooltip.
 fn mono_image(dark_panel: bool) -> Option<Image<'static>> {
     let bytes: &'static [u8] = if cfg!(target_os = "macos") {
-        include_bytes!("../icons/tray/mono-template-44.png")
+        include_bytes!("../icons/tray/mono-template-mac.png")
     } else if dark_panel {
         include_bytes!("../icons/tray/mono-dark-32.png")
     } else {
@@ -58,8 +58,9 @@ pub fn set_style(app: &AppHandle, mono: bool) {
     let _ = tray.icon.set_icon_as_template(mono);
 }
 
-/// PNG for a state on a dark or light panel. macOS gets the 44 px image (22 pt at 2x); other systems
-/// scale the 32 px one.
+/// PNG for a state on a dark or light panel. macOS shows every tray image 18 pt tall, so its images
+/// are cropped close to the mark (wide, 72 px tall) to fill the menu bar like other icons; other
+/// systems scale the square 32 px one.
 fn image(state: TrayState, dark_panel: bool) -> Option<Image<'static>> {
     macro_rules! pick {
         ($panel:literal, $px:literal) => {
@@ -73,9 +74,9 @@ fn image(state: TrayState, dark_panel: bool) -> Option<Image<'static>> {
         };
     }
     let bytes: &'static [u8] = match (dark_panel, cfg!(target_os = "macos")) {
-        (true, true) => pick!("dark", "44"),
+        (true, true) => pick!("dark", "mac"),
         (true, false) => pick!("dark", "32"),
-        (false, true) => pick!("light", "44"),
+        (false, true) => pick!("light", "mac"),
         (false, false) => pick!("light", "32"),
     };
     Image::from_bytes(bytes).ok()
