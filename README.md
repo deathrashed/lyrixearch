@@ -210,11 +210,11 @@ cd crates/gui && cargo tauri build
 <details>
 <summary><strong>Platform Prerequisites</strong></summary>
 
-**Linux** needs the Tauri prerequisites and ALSA headers for the built-in player:
+**Linux** needs the Tauri prerequisites, ALSA headers for the built-in player and AppIndicator for the tray icon:
 
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libgtk-3-dev \
-  librsvg2-dev libxdo-dev libssl-dev libasound2-dev patchelf
+  librsvg2-dev libxdo-dev libssl-dev libasound2-dev libayatana-appindicator3-dev patchelf
 ```
 
 **Windows** needs the Microsoft C++ build tools; the app uses the system WebView2 runtime.

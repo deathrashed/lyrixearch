@@ -35,10 +35,10 @@
     },
     "linux": {
       "deb": {
-        "depends": ["libasound2 | libasound2t64"]
+        "depends": ["libasound2 | libasound2t64", "libayatana-appindicator3-1"]
       },
       "rpm": {
-        "depends": ["alsa-lib"]
+        "depends": ["alsa-lib", "libayatana-appindicator-gtk3"]
       }
     },
     "publisher": "Lyrixearch contributors",
