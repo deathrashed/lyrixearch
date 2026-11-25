@@ -402,7 +402,8 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                         })
                     };
                     let mut applied = None;
-                    if auto_write {
+                    // a transcription waits for the person to check it
+                    if auto_write && !lyrics.review {
                         if let Some(t) = track {
                             let _ = app2.emit("session-log", format!("Found {} via {}", t.display_name(), lyrics.source));
                             let l = lyrics.clone();
@@ -1102,6 +1103,57 @@ fn diagnose(app: AppHandle, state: State<'_, AppState>) -> Vec<Check> {
     out
 }
 
+// ───────────────────────────── AI transcription (Settings → Transcription) ─────────────────────────────
+
+/// What local transcription has to work with: whisper.cpp, ffmpeg and a model.
+#[tauri::command]
+fn transcribe_status(state: State<'_, AppState>) -> serde_json::Value {
+    use providers::transcribe;
+    let cfg = state.0.lock().unwrap().cfg.clone();
+    let path = |p: Option<PathBuf>| p.map(|p| p.display().to_string());
+    serde_json::json!({
+        "whisper": path(transcribe::whisper_bin(&cfg)),
+        "ffmpeg": path(transcribe::find_tool("ffmpeg")),
+        "model": path(transcribe::model_path(&cfg)),
+        "model_name": transcribe::MODEL_NAME,
+        "models_dir": transcribe::models_dir().display().to_string(),
+    })
+}
+
+/// Download the recommended whisper.cpp model into the models folder, reporting progress as
+/// `model-download` events (`{ done, total }`). A half-finished download never counts as a model.
+#[tauri::command]
+async fn transcribe_download_model(app: AppHandle) -> CmdResult<String> {
+    use providers::transcribe;
+    use std::io::Write;
+    let dir = transcribe::models_dir();
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let dest = dir.join(transcribe::MODEL_NAME);
+    let part = dir.join(format!("{}.part", transcribe::MODEL_NAME));
+    let mut resp = reqwest::Client::new().get(transcribe::MODEL_URL).send().await.map_err(err)?.error_for_status().map_err(err)?;
+    let total = resp.content_length().unwrap_or(0);
+    let mut file = std::fs::File::create(&part).map_err(err)?;
+    let mut done: u64 = 0;
+    let mut last = std::time::Instant::now();
+    while let Some(chunk) = resp.chunk().await.map_err(err)? {
+        file.write_all(&chunk).map_err(err)?;
+        done += chunk.len() as u64;
+        if last.elapsed() > std::time::Duration::from_millis(250) {
+            let _ = app.emit("model-download", serde_json::json!({ "done": done, "total": total }));
+            last = std::time::Instant::now();
+        }
+    }
+    file.flush().map_err(err)?;
+    drop(file);
+    if total > 0 && done != total {
+        let _ = std::fs::remove_file(&part);
+        return Err(format!("the download stopped early ({done} of {total} bytes)"));
+    }
+    std::fs::rename(&part, &dest).map_err(err)?;
+    let _ = app.emit("model-download", serde_json::json!({ "done": done, "total": total, "finished": true }));
+    Ok(dest.display().to_string())
+}
+
 // ───────────────────────────── accounts (Settings → Accounts) ─────────────────────────────
 
 #[tauri::command]
@@ -1674,6 +1726,8 @@ fn main() {
             diagnose,
             reveal_config,
             account_list,
+            transcribe_status,
+            transcribe_download_model,
             account_status,
             account_sign_in,
             account_sign_out,

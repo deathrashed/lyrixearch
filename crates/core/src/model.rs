@@ -28,6 +28,10 @@ pub struct Lyrics {
     pub matched_title: String,
     /// 0.0..=1.0 match confidence against the query.
     pub score: f32,
+    /// Found but to be checked by a person before it goes into the file (AI transcriptions): a
+    /// search shows it, Fetch does not write it by itself.
+    #[serde(default)]
+    pub review: bool,
 }
 
 impl Lyrics {

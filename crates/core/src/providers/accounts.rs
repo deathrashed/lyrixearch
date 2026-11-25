@@ -75,6 +75,7 @@ impl Provider for AccountSource {
             matched_artist: best.artist.clone(),
             matched_title: best.title.clone(),
             score: sc,
+            review: false,
         }))
     }
 }

@@ -64,6 +64,7 @@ impl Provider for LocalFiles {
                 matched_artist: q.artist.clone(),
                 matched_title: q.title.clone(),
                 score: 1.0,
+                review: false,
             }));
         }
         Ok(None)

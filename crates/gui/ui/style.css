@@ -615,6 +615,10 @@ body.settings-window { overflow: hidden; }
 .sw-plist li { border: 0; border-radius: 0; background: none; padding: var(--s2) 0; }
 .sw-plist li + li { border-top: 1px solid var(--border); }
 .health .grow { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ok-text { color: var(--ok-text); }
+.bad-text { color: var(--led-red); }
+.sw-label code { font-size: var(--text-xs); overflow-wrap: anywhere; }
+.sw-range progress { width: 140px; accent-color: var(--accent); }
 .acct-ctl { flex-direction: row; align-items: center; gap: var(--s3); }
 .acct-status { max-width: 420px; }
 .diag { list-style: none; margin: 0; padding: 0; }

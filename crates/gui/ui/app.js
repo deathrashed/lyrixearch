@@ -40,8 +40,9 @@
 
   function logEvent(message) {
     const time = new Date().toLocaleTimeString();
-    const key = S.settings?.config?.lastfm_api_key?.trim();
-    const text = key ? String(message).split(key).join('[redacted]') : String(message);
+    // keys never reach the session log
+    let text = String(message);
+    for (const key of [S.settings?.config?.lastfm_api_key, S.settings?.config?.transcribe_api_key]) if (key?.trim()) text = text.split(key.trim()).join('[redacted]');
     for (const line of text.split(/\r?\n/)) logLines.push(`[${time}] ${line}`);
     if (logLines.length > 2000) logLines.splice(0, logLines.length - 2000);
     if (!$('#session-log').hidden && !logFrame) logFrame = requestAnimationFrame(() => { logFrame = 0; renderLog(); });

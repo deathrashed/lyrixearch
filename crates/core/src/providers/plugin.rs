@@ -121,6 +121,7 @@ fn parse_reply(id: &str, stdout: &str, q: &Query) -> Result<Option<Lyrics>> {
         matched_artist: reply.artist.unwrap_or_else(|| q.artist.clone()),
         matched_title: reply.title.unwrap_or_else(|| q.title.clone()),
         score: reply.score.unwrap_or(0.9).clamp(0.0, 1.0),
+        review: false,
     }))
 }
 

@@ -25,6 +25,7 @@ mod lyricsfreak;
 mod metal_archives;
 mod ovh;
 pub mod plugin;
+pub mod transcribe;
 pub mod web;
 
 #[async_trait]
@@ -94,6 +95,7 @@ pub fn all(plugins_dir: &std::path::Path) -> Vec<Arc<dyn Provider>> {
     for (id, name) in accounts::SERVICES {
         v.push(Arc::new(accounts::AccountSource { id, name }));
     }
+    v.push(Arc::new(transcribe::Transcribe));
     let (plugins, _broken) = plugin::discover(plugins_dir);
     for p in plugins {
         // A plugin may not shadow a built-in id.
@@ -157,6 +159,15 @@ pub const BUILTINS: &[Builtin] = &[
     account("spotify", "Spotify", "Synced lyrics, with your Spotify account (Settings → Accounts)"),
     account("apple_music", "Apple Music", "Synced lyrics, with an Apple Music subscription (Settings → Accounts)"),
     account("deezer", "Deezer", "Synced lyrics, with your Deezer account (Settings → Accounts)"),
+    // writes the lyrics down from the track itself; last, and only when switched on
+    Builtin {
+        id: "ai_transcribe",
+        name: "AI transcription",
+        note: "Whisper writes the lyrics down from the track; check before embedding (Settings → Transcription)",
+        inflight: 1,
+        gap_ms: 0,
+        default_on: false,
+    },
 ];
 
 /// The built-in sources before AZLyrics and Letras were added. A settings file written then

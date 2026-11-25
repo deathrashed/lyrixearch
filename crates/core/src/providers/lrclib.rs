@@ -45,6 +45,7 @@ impl Record {
             matched_artist: self.artist_name,
             matched_title: self.track_name,
             score: s,
+            review: false,
         })
     }
 }

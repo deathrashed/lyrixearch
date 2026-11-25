@@ -18,6 +18,7 @@
     files: ['Files', 'What is written into your music files'],
     appearance: ['Appearance', 'Theme, colour and size'],
     plugins: ['Plugins', 'Scripts that act as extra sources'],
+    transcription: ['Transcription', 'When no source has the lyrics, AI writes them down from the track itself'],
     accounts: ['Accounts', 'Lyrics from services you have an account with. You sign in on their own page; the app never sees your password'],
     diagnostics: ['Diagnostics', 'Checks to run when something does not work, and a report to share'],
     about: ['About', ''],
@@ -108,6 +109,29 @@
         : '<p class="sw-empty">No plugins installed yet.</p>'}</div>
         <div class="sw-actions"><button class="btn" id="plugin-install">${icon('plug')}<span>Install plugin folder…</span></button></div>
         <p class="sw-note">Plugins live in <code>${esc(settings.plugins_dir)}</code>. See docs/PLUGINS.md for the protocol.</p>`;
+    } else if (section === 'transcription') {
+      const st = tStatus || {};
+      const engine = draft.transcribe_engine || 'local';
+      const found = (path, what, hint) => (path ? `<span class="ok-text">Found</span> <code>${esc(path)}</code>` : `<span class="bad-text">Not found.</span> ${hint || `Install ${what}.`}`);
+      const installHint = /Mac/.test(navigator.userAgent) ? 'Install it with <code>brew install whisper-cpp</code>.' : 'Install whisper.cpp from your package manager (for example <code>whisper.cpp</code>), or build it from github.com/ggml-org/whisper.cpp.';
+      const ffHint = /Mac/.test(navigator.userAgent) ? 'Install it with <code>brew install ffmpeg</code>.' : 'Install <code>ffmpeg</code> from your package manager.';
+      const modelCtl = st.model
+        ? `<span class="ok-text">Ready</span> <code>${esc(st.model.split(/[\\/]/).pop())}</code>`
+        : (tDownload ? `<span class="sw-range"><progress max="${tDownload.total || 1}" value="${tDownload.done}"></progress><b>${tDownload.total ? Math.round((tDownload.done / tDownload.total) * 100) : 0}%</b></span>` : `<button class="btn sm" id="t-download">${icon('download')}<span>Download model (550 MB)</span></button>`);
+      body.innerHTML = group('', [
+        row('t-use', 'Use AI transcription', 'Tried last, only when every other source missed', `<span class="switch"><input id="f-t-use" type="checkbox" data-t-use ${draft.providers.includes('ai_transcribe') ? 'checked' : ''}><i></i></span>`),
+        row('transcribe_engine', 'Engine', 'On this computer (free, private), or a service with your own API key', sel('transcribe_engine', [['local', 'On this computer (whisper.cpp)'], ['groq', 'Groq (free tier, fast)'], ['openai', 'OpenAI']])),
+        row('transcribe_language', 'Language', 'A language code such as en or de; empty detects it', txt('transcribe_language', 'auto')),
+      ]) + (engine === 'local'
+        ? group('On this computer', [
+          `<div class="sw-row"><div class="sw-label"><b>whisper.cpp</b><span>${found(st.whisper, 'whisper.cpp', installHint)}</span></div></div>`,
+          `<div class="sw-row"><div class="sw-label"><b>ffmpeg</b><span>${found(st.ffmpeg, 'ffmpeg', ffHint)}</span></div></div>`,
+          `<div class="sw-row"><div class="sw-label"><b>Model</b><span>Whisper large-v3-turbo: good with singing, about a minute per song without a GPU</span></div><div class="sw-ctl">${modelCtl}</div></div>`,
+        ])
+        : group('Service', [
+          row('transcribe_api_key', 'API key', engine === 'groq' ? 'From console.groq.com/keys' : 'From platform.openai.com/api-keys', txt('transcribe_api_key', 'none', 'password')),
+        ])) + `<p class="sw-note">Transcriptions can be wrong, so they are marked for review: a search shows them, but Fetch does not write them into your files by itself. Embed one from the track's Lyrics tab once you have checked it.</p>`;
+      if (!tStatus) loadTranscribeStatus();
     } else if (section === 'accounts') {
       body.innerHTML = `<div class="sw-card">${ACCOUNTS.map((a) => `<div class="sw-row" data-acct="${a.id}">
           <div class="sw-label"><b>${esc(a.name)}</b><span class="acct-status" id="acct-${a.id}">${acctText(a.id)}</span></div>
@@ -131,6 +155,14 @@
       (T.app?.getVersion ? T.app.getVersion() : Promise.resolve('')).then((v) => { if (v) $('#about-version').textContent = `Version ${v}`; }).catch(() => {});
     }
     $$('[data-icon]', body).forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
+  }
+
+  // ───────── transcription ─────────
+  let tStatus = null;
+  let tDownload = null;
+  async function loadTranscribeStatus() {
+    try { tStatus = await invoke('transcribe_status'); } catch { tStatus = {}; }
+    if (section === 'transcription') render();
   }
 
   // ───────── accounts ─────────
@@ -201,13 +233,19 @@
       if (k === '__scale') return;
       if (t.type === 'checkbox') draft[k] = t.checked;
       else if (t.type === 'range') { draft[k] = Number(t.value); const v = $(`[data-v="${k}"]`); if (v) v.textContent = k === 'min_score' ? `${Math.round(t.value * 100)}%` : k === 'provider_timeout_secs' ? `${t.value} s` : t.value; }
-      else if (k === 'proxy' || k === 'lastfm_api_key' || k === 'tag_clean_pattern') draft[k] = t.value.trim() ? (k === 'tag_clean_pattern' ? t.value : t.value.trim()) : null;
+      else if (k === 'proxy' || k === 'lastfm_api_key' || k === 'tag_clean_pattern' || k === 'transcribe_api_key' || k === 'transcribe_language') draft[k] = t.value.trim() ? (k === 'tag_clean_pattern' ? t.value : t.value.trim()) : null;
       else draft[k] = t.value;
       scheduleSave();
     });
     body.addEventListener('change', (e) => {
       const t = e.target;
       if (t.dataset.k === '__scale') { store.set('lf-scale', t.value); invoke('set_ui_scale', { scale: Number(t.value) }).catch((err) => toast(errText(err), 'bad')); return; }
+      if (t.dataset.tUse !== undefined) {
+        if (t.checked) { if (!draft.providers.includes('ai_transcribe')) draft.providers.push('ai_transcribe'); } else draft.providers = draft.providers.filter((p) => p !== 'ai_transcribe');
+        scheduleSave();
+        return;
+      }
+      if (t.dataset.k === 'transcribe_engine') { draft.transcribe_engine = t.value; scheduleSave(); render(); return; }
       if (t.dataset.acctUse) {
         const id = t.dataset.acctUse;
         if (t.checked) { if (!draft.providers.includes(id)) draft.providers.push(id); } else draft.providers = draft.providers.filter((p) => p !== id);
@@ -267,6 +305,14 @@
         }
         return;
       }
+      if (e.target.closest('#t-download')) {
+        tDownload = { done: 0, total: 0 };
+        render();
+        try { await invoke('transcribe_download_model'); toast('Whisper model ready'); } catch (err) { toast(errText(err), 'bad'); }
+        tDownload = null;
+        loadTranscribeStatus();
+        return;
+      }
       if (e.target.closest('#diag-run')) { runDiagnostics(); return; }
       if (e.target.closest('#diag-reveal')) { invoke('reveal_config').catch((err) => toast(errText(err), 'bad')); return; }
       if (e.target.closest('#diag-copy')) {
@@ -285,6 +331,12 @@
           render(); toast('Plugin installed and enabled');
         } catch (err) { toast(errText(err), 'bad'); }
       }
+    });
+    T.event.listen('model-download', (e) => {
+      if (!tDownload) return;
+      tDownload = e.payload;
+      const bar = $('#sw-body progress');
+      if (bar) { bar.max = e.payload.total || 1; bar.value = e.payload.done; const b = bar.nextElementSibling; if (b) b.textContent = `${e.payload.total ? Math.round((e.payload.done / e.payload.total) * 100) : 0}%`; }
     });
     // a sign-in window was closed: look again
     T.event.listen('accounts-changed', () => { for (const a of ACCOUNTS) checkAccount(a.id); });

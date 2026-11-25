@@ -189,6 +189,9 @@ struct FetchArgs {
     /// Search and report, but write nothing
     #[arg(long)]
     dry_run: bool,
+    /// Also write AI transcriptions (normally they are reported, for checking first)
+    #[arg(long)]
+    write_transcriptions: bool,
     /// One JSON object per track on stdout
     #[arg(long)]
     json: bool,
@@ -363,7 +366,11 @@ async fn fetch_cmd(a: FetchArgs, mut cfg: Config) -> Result<ExitCode> {
             Event::Found { idx, lyrics } => {
                 done += 1;
                 let t = &tracks[idx];
-                let applied = if a.dry_run { Ok(Default::default()) } else { engine.apply(t, &lyrics) };
+                let held = lyrics.review && !a.write_transcriptions;
+                if held && !a.json {
+                    eprintln!("  · {}: transcribed by AI, not written: check it, then `lyrixearch set`, or use --write-transcriptions", t.display_name());
+                }
+                let applied = if a.dry_run || held { Ok(Default::default()) } else { engine.apply(t, &lyrics) };
                 match applied {
                     Ok(ap) => {
                         found += 1;

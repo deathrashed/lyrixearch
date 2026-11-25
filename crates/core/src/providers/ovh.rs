@@ -43,6 +43,7 @@ impl Provider for LyricsOvh {
             matched_artist: artist,
             matched_title: title,
             score,
+            review: false,
         }))
     }
 }

@@ -83,6 +83,16 @@ pub struct Config {
     /// Keep timing for single words (Enhanced LRC) where a source has it: in .lrc files and the
     /// SYNCEDLYRICS tag of FLAC / Ogg. MP3's SYLT frame always gets line timing.
     pub word_timing: bool,
+    /// AI transcription (the `ai_transcribe` source): `local` (whisper.cpp), `groq` or `openai`.
+    pub transcribe_engine: String,
+    /// API key for `groq` / `openai` transcription.
+    pub transcribe_api_key: Option<String>,
+    /// Language hint for transcription (`en`, `de`, ...); empty or `auto` detects it.
+    pub transcribe_language: Option<String>,
+    /// whisper.cpp model file; empty uses the one downloaded in Settings.
+    pub whisper_model: Option<String>,
+    /// whisper.cpp program; empty finds `whisper-cli`.
+    pub whisper_bin: Option<String>,
     /// Desktop app: search tracks as soon as they are added to the list.
     pub auto_fetch: bool,
     /// Desktop app: closing the window keeps the app running in the menu bar / tray.
@@ -128,6 +138,11 @@ impl Default for Config {
             tag_clean_pattern: None,
             known_providers: crate::providers::builtin_ids(),
             word_timing: false,
+            transcribe_engine: "local".into(),
+            transcribe_api_key: None,
+            transcribe_language: None,
+            whisper_model: None,
+            whisper_bin: None,
             auto_fetch: false,
             keep_running: true,
             notify_done: true,
