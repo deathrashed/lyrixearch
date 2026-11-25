@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod player;
+mod tray;
 
 use anyhow::Context as _;
 use lyrixearch_core::providers::{self, ProviderInfo};
@@ -280,6 +281,9 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
     tauri::async_runtime::spawn(async move {
         let state = app2.state::<AppState>();
         let mut prog = Progress { done: 0, total, found: 0, written: 0, missed: 0, running: true };
+        let mut failed = 0usize;
+        let cancel_flag = state.0.lock().unwrap().cancel.clone();
+        tray::set(&app2, tray::TrayState::Fetching, format!("fetching lyrics, 0/{total}"));
         let _ = app2.emit("session-log", format!("Started search for {total} track(s)"));
         let _ = app2.emit("progress", prog.clone());
         while let Some(ev) = rx.recv().await {
@@ -310,6 +314,7 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
                 }
                 Event::Failed { notes, .. } => {
                     prog.done += 1;
+                    failed += 1;
                     set(&state, id, |e| {
                         e.status = Status::Error;
                         e.note = Some(format!("no source answered, search again later\n{}", notes.join("\n")));
@@ -374,8 +379,17 @@ async fn search(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>, auto_
             }
             emit_track(&app2, &state, id);
             let _ = app2.emit("progress", prog.clone());
+            tray::set(&app2, tray::TrayState::Fetching, format!("fetching lyrics, {}/{total} · {} found", prog.done, prog.found));
         }
         prog.running = false;
+        let summary = format!("{} found, {} not found", prog.found, prog.missed);
+        if cancel_flag.load(Ordering::Relaxed) && prog.done < total {
+            tray::set(&app2, tray::TrayState::Stopped, format!("stopped at {}/{total} · {summary}", prog.done));
+        } else if failed > 0 {
+            tray::set(&app2, tray::TrayState::Error, format!("{failed} track(s) could not be searched, try again later · {summary}"));
+        } else {
+            tray::set(&app2, tray::TrayState::Complete, format!("done · {summary}"));
+        }
         let _ = app2.emit(
             "session-log",
             format!("Search finished: {}/{} completed, {} found, {} written, {} not found", prog.done, total, prog.found, prog.written, prog.missed),
@@ -1276,6 +1290,10 @@ fn main() {
         ])
         .setup(|app| {
             app.manage(player::Player::start(app.handle().clone()));
+            if let Err(e) = tray::install(app.handle()) {
+                // some Linux desktops have no tray; the app works the same without it
+                eprintln!("lyrixearch: no tray icon: {e}");
+            }
             let window = WindowBuilder::new(app, "main")
                 .title("Lyrixearch")
                 .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))?)?
@@ -1320,6 +1338,9 @@ fn main() {
             // The UI webview always fills the window; the browser panel is positioned by the UI.
             let handle = app.handle().clone();
             window.on_window_event(move |ev| {
+                if let WindowEvent::ThemeChanged(_) = ev {
+                    tray::refresh_theme(&handle);
+                }
                 if let WindowEvent::Resized(_) = ev {
                     if let (Some(w), Some(ui)) = (handle.get_window("main"), handle.get_webview("ui")) {
                         if let (Ok(s), Ok(f)) = (w.inner_size(), w.scale_factor()) {
