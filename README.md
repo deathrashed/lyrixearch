@@ -100,7 +100,7 @@ ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 | <img src="https://api.iconify.design/mdi/lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Fetch**: the green top-bar button searches the listed tracks and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
 | <img src="https://api.iconify.design/mdi/file-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
 | <img src="https://api.iconify.design/mdi/play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Right pane**: select a track to see its player and **Lyrics**, **Edit**, **Web** and **Details** tabs. With no track selected, **Overview** shows lyrics coverage and **Activity** shows fetch progress and results. |
-| <img src="https://api.iconify.design/mdi/web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. On Linux all results open in your browser. |
+| <img src="https://api.iconify.design/mdi/web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. |
 
 <details>
 <summary><strong>State colors</strong></summary>
@@ -221,6 +221,8 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
   librsvg2-dev libxdo-dev libssl-dev libasound2-dev libayatana-appindicator3-dev patchelf
 ```
 
+Under Wayland a window cannot set its own icon; the desktop takes it from an installed `.desktop` entry. The `.deb` and `.rpm` packages install one. For a build run from the checkout, `scripts/linux-desktop-entry.sh` installs an entry and icons in `~/.local/share` (`scripts/linux-desktop-entry.sh remove` takes them out).
+
 **Windows** needs the Microsoft C++ build tools; the app uses the system WebView2 runtime.
 
 </details>
@@ -229,7 +231,7 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
 
 CI builds, lints and tests on macOS, Windows and Linux. Hands-on testing covers **macOS**, and **Linux** on CachyOS with KDE Plasma (Wayland): adding a folder, live search, embedding from `.lrc`, cover art and the player all work there.
 
-- **Linux:** the Web tab opens results in your browser instead of inside the window, because Tauri cannot place a page inside the window on Linux. The verification window for captcha-protected sources opens but has not yet been seen to pass a check there.
+- **Linux:** the Web tab shows pages inside the window (Tauri stacks child webviews on Linux, so the app moves the page into a GTK overlay at the Web tab's place). Captcha-protected sources load in a hidden browser as on macOS; a check that needs a person has not yet been tried there.
 - **Windows:** built by CI, not yet tested by hand.
 
 Bug reports with the OS and version are welcome.
