@@ -68,8 +68,13 @@ Neutral greys carry the interface. One accent marks the main action, the selecti
 - Accent colour: green (default), blue, purple, amber or pink. Status lamps keep their own colours.
 - Interface scale: 90 / 100 / 110 / 125% for the main window. The web panel's position scales with it.
 - Lyrics text size: 11-28px.
-- Menu bar icon: Coloured or Monochrome. Coloured is the brand LS mark with a status lamp: idle blue, fetching yellow, complete green, stopped red, error red with "!". Monochrome is a template image on macOS and the plain mark elsewhere; the state then shows only in the tooltip.
 - Stored in the webview's local storage, which both windows share. A change in one window reaches the other through the storage event.
+
+## Menu bar / tray
+
+- One icon: the symbolic "LS" mark from the brand package. On macOS it is a template image, tinted by the system. Following Bjango's "Designing menu bar extras", it has no padding and about the weight of a 16 pt circle: letters 10 pt tall, about 20 pt wide. Elsewhere it is the dark-panel or light-panel PNG, matching the system theme.
+- The search state is not drawn in the icon. It is the first, disabled line of the menu (Ready / Fetching 3 of 20 · 1 found / Done · …) and the tooltip.
+- Menu: status, Show Lyrixearch, Fetch (brings the window forward and asks first, like the button), Stop (enabled while fetching), Quit.
 
 ## Wording
 
@@ -104,6 +109,6 @@ One term per concept:
 
 ## Changelog
 
-- 2026-11-26: native direction, after the owner's FluxDown reference. System font, neutral greys, sentence case, pill filters and tabs, label/value Info, Settings in its own window with live saving, Appearance (theme, accent, scale, lyrics size, menu bar icon), and status colours that no longer follow the accent. Replaces the earlier studio-rack direction (Sora uppercase labels, grille texture, bundled fonts).
+- 2026-11-26: native direction, after the owner's FluxDown reference. System font, neutral greys, sentence case, pill filters and tabs, label/value Info, Settings in its own window with live saving, Appearance (theme, accent, scale, lyrics size), symbolic menu bar icon, and status colours that no longer follow the accent. Replaces the earlier studio-rack direction (Sora uppercase labels, grille texture, bundled fonts).
 - 2026-11-26: Import menu, Fetch, Not found, one status line in the footer, overflow menus, hidden-browser bot checks, Use selection in the Web tab, brand package v6 and tray icon.
 - 2026-10-14: first version (studio-rack direction).

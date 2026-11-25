@@ -89,7 +89,6 @@
         row('accent', 'Accent colour', 'Buttons, selection and focus', `<div class="swatches" role="radiogroup" aria-label="Accent colour">${Object.entries(ACCENTS).map(([k, a]) => `<button role="radio" class="swatch" data-accent="${k}" aria-checked="${k === accent}" aria-label="${esc(a.name)}" title="${esc(a.name)}" style="--c:${a.dark}"></button>`).join('')}</div>`),
         row('scale', 'Interface scale', 'Size of everything in the main window', sel('__scale', [['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%']]).replace(`value="${scale}"`, `value="${scale}" selected`)),
         row('lyrics', 'Lyrics text size', 'In the Lyrics and Edit tabs', `<span class="sw-range"><input id="f-lyrics" type="range" min="11" max="28" step="1" value="${Number(store.get('lf-lyrics-size')) || 14}" data-local="lf-lyrics-size"><b data-v="lyrics">${Number(store.get('lf-lyrics-size')) || 14} px</b></span>`),
-        row('tray', 'Menu bar icon', 'Coloured shows the search state; monochrome matches the other icons', seg('tray', store.get('lf-tray') || 'color', [['color', 'Coloured'], ['mono', 'Monochrome']])),
       ]);
     } else if (section === 'plugins') {
       const plugins = settings.providers.filter((p) => p.kind === 'plugin');
@@ -174,7 +173,6 @@
       if (sg) {
         $$(`[data-seg="${sg.dataset.seg}"]`).forEach((b) => b.setAttribute('aria-checked', b === sg));
         if (sg.dataset.seg === 'theme') { store.set('lf-theme', sg.dataset.v); applyAppearance(); }
-        if (sg.dataset.seg === 'tray') { store.set('lf-tray', sg.dataset.v); invoke('set_tray_style', { style: sg.dataset.v }).catch((err) => toast(errText(err), 'bad')); }
         return;
       }
       const sw = e.target.closest('[data-accent]');

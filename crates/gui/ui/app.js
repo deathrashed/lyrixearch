@@ -1069,10 +1069,9 @@
     // the settings window changed appearance, or the system switched light/dark
     window.addEventListener('storage', paintAppearance);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintAppearance);
-    // window-level appearance the backend applies: interface scale and the tray icon style
+    // window-level appearance the backend applies: interface scale
     const scale = Number(store.get('lf-scale')) || 1;
     if (scale !== 1) invoke('set_ui_scale', { scale }).catch(() => {});
-    if (store.get('lf-tray') === 'mono') invoke('set_tray_style', { style: 'mono' }).catch(() => {});
     // settings saved in the settings window
     T.event.listen('settings-changed', (e) => {
       S.settings = e.payload;
@@ -1126,10 +1125,8 @@
     // menu-bar / tray actions
     T.event.listen('tray-action', (e) => {
       if (e.payload === 'stop') { if (S.progress?.running) invoke('cancel_search'); return; }
-      if (e.payload === 'find-all' && !S.progress?.running) {
-        const ids = runIds();
-        if (ids.length) startSearch(ids, true, S.replace); else toast('Every listed track has lyrics');
-      }
+      // the window is brought forward first; this asks the same question as the Fetch button
+      if (e.payload === 'find-all' && !S.progress?.running) runAll();
     });
     T.event.listen('player', (e) => {
       S.player = e.payload;

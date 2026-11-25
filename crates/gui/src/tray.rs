@@ -1,14 +1,16 @@
-//! Menu-bar / system-tray icon: shows what the search engine is doing (the brand's "LS" mark with a
-//! status lamp) and offers the main actions without bringing the window forward.
+//! Menu-bar / system-tray icon: the brand's symbolic "LS" mark, with the main actions in its menu.
 //!
-//! States follow the brand package: idle = blue, fetching = yellow, complete = green,
-//! stopped = red, error = red with an exclamation mark. The tooltip always says the same in words.
+//! macOS gets a template image (the system tints it with the other menu-bar icons and inverts it
+//! while the menu is open). Sized after Bjango's "Designing menu bar extras": no padding, and about
+//! the weight of a 16 pt circle, so the letters are 10 pt tall. Other systems get the white or dark
+//! mark for the panel. The search state is not drawn in the icon: it is the first line of the menu
+//! and the tooltip.
 
 use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, Theme};
+use tauri::{AppHandle, Emitter, Manager, Theme, Wry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayState {
@@ -19,94 +21,51 @@ pub enum TrayState {
     Error,
 }
 
-/// Current state and tooltip, kept so the icon can be redrawn when the system theme changes.
 pub struct Tray {
     icon: TrayIcon,
-    now: Mutex<(TrayState, String)>,
-    /// Monochrome mark instead of the coloured status lamp (Settings → Appearance).
-    mono: std::sync::atomic::AtomicBool,
+    /// Disabled first menu item that says what is happening ("Ready", "Fetching 3 of 20").
+    status: MenuItem<Wry>,
+    stop: MenuItem<Wry>,
+    now: Mutex<TrayState>,
 }
 
-/// The plain "LS" mark: a template image on macOS (the system tints it like the other menu-bar icons),
-/// white or dark letters elsewhere. The state is then only in the tooltip.
-fn mono_image(dark_panel: bool) -> Option<Image<'static>> {
+fn image(dark_panel: bool) -> Option<Image<'static>> {
     let bytes: &'static [u8] = if cfg!(target_os = "macos") {
-        include_bytes!("../icons/tray/mono-template-mac.png")
+        include_bytes!("../icons/tray/lsTemplate-mac.png")
     } else if dark_panel {
-        include_bytes!("../icons/tray/mono-dark-32.png")
+        include_bytes!("../icons/tray/ls-dark-32.png")
     } else {
-        include_bytes!("../icons/tray/mono-light-32.png")
+        include_bytes!("../icons/tray/ls-light-32.png")
     };
     Image::from_bytes(bytes).ok()
 }
 
-fn current_image(tray: &Tray, state: TrayState, dark: bool) -> Option<Image<'static>> {
-    if tray.mono.load(std::sync::atomic::Ordering::Relaxed) {
-        mono_image(dark)
-    } else {
-        image(state, dark)
-    }
-}
-
-/// Switch between the coloured status icon and the monochrome mark.
-pub fn set_style(app: &AppHandle, mono: bool) {
-    let Some(tray) = app.try_state::<Tray>() else { return };
-    tray.mono.store(mono, std::sync::atomic::Ordering::Relaxed);
-    let state = tray.now.lock().unwrap().0;
-    let _ = tray.icon.set_icon(current_image(&tray, state, dark_panel(app)));
-    #[cfg(target_os = "macos")]
-    let _ = tray.icon.set_icon_as_template(mono);
-}
-
-/// PNG for a state on a dark or light panel. macOS shows every tray image 18 pt tall, so its images
-/// are cropped close to the mark (wide, 72 px tall) to fill the menu bar like other icons; other
-/// systems scale the square 32 px one.
-fn image(state: TrayState, dark_panel: bool) -> Option<Image<'static>> {
-    macro_rules! pick {
-        ($panel:literal, $px:literal) => {
-            match state {
-                TrayState::Idle => &include_bytes!(concat!("../icons/tray/", $panel, "-idle-", $px, ".png"))[..],
-                TrayState::Fetching => &include_bytes!(concat!("../icons/tray/", $panel, "-fetching-", $px, ".png"))[..],
-                TrayState::Complete => &include_bytes!(concat!("../icons/tray/", $panel, "-complete-", $px, ".png"))[..],
-                TrayState::Stopped => &include_bytes!(concat!("../icons/tray/", $panel, "-stopped-", $px, ".png"))[..],
-                TrayState::Error => &include_bytes!(concat!("../icons/tray/", $panel, "-error-", $px, ".png"))[..],
-            }
-        };
-    }
-    let bytes: &'static [u8] = match (dark_panel, cfg!(target_os = "macos")) {
-        (true, true) => pick!("dark", "mac"),
-        (true, false) => pick!("dark", "32"),
-        (false, true) => pick!("light", "mac"),
-        (false, false) => pick!("light", "32"),
-    };
-    Image::from_bytes(bytes).ok()
-}
-
-/// Dark panel (white letters) unless the system is in light mode. The macOS menu bar and most Linux
-/// panels follow the system theme; the main window reports it.
+/// Dark panel (white mark) unless the system is in light mode. Most Linux panels and the Windows
+/// taskbar follow the system theme; the main window reports it. (macOS tints the template itself.)
 fn dark_panel(app: &AppHandle) -> bool {
     app.get_window("main").and_then(|w| w.theme().ok()).is_none_or(|t| t != Theme::Light)
 }
 
 /// Create the tray icon and its menu. A failure (no tray support on this desktop) is not fatal.
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
+    let status = MenuItem::with_id(app, "status", "Ready", false, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Lyrixearch", true, None::<&str>)?;
-    let find = MenuItem::with_id(app, "find-all", "Fetch lyrics", true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "stop", "Stop search", true, None::<&str>)?;
+    let find = MenuItem::with_id(app, "find-all", "Fetch", true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "stop", "Stop", false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Lyrixearch", true, None::<&str>)?;
     let sep = || PredefinedMenuItem::separator(app);
-    let menu = Menu::with_items(app, &[&show, &sep()?, &find, &stop, &sep()?, &quit])?;
+    let menu = Menu::with_items(app, &[&status, &sep()?, &show, &find, &stop, &sep()?, &quit])?;
 
-    let tooltip = "Lyrixearch: ready";
     let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip(tooltip)
+        .tooltip("Lyrixearch: ready")
         .menu(&menu)
         // a left click shows the window on Windows and Linux; macOS opens the menu, as menu-bar items do
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main(app),
-            // the UI owns the track list, so it decides what "all" means (same as its own button)
+            // the UI owns the track list, so it decides what "all" means and asks first, as its own button does
             "find-all" => {
+                show_main(app);
                 let _ = app.emit("tray-action", "find-all");
             }
             "stop" => {
@@ -122,16 +81,15 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
         });
-    if let Some(img) = image(TrayState::Idle, dark_panel(app)) {
+    if let Some(img) = image(dark_panel(app)) {
         builder = builder.icon(img);
     }
     #[cfg(target_os = "macos")]
     {
-        // coloured status lamps: no automatic template tinting
-        builder = builder.icon_as_template(false);
+        builder = builder.icon_as_template(true);
     }
     let icon = builder.build(app)?;
-    app.manage(Tray { icon, now: Mutex::new((TrayState::Idle, tooltip.into())), mono: std::sync::atomic::AtomicBool::new(false) });
+    app.manage(Tray { icon, status, stop, now: Mutex::new(TrayState::Idle) });
     Ok(())
 }
 
@@ -143,30 +101,23 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// Switch the icon and tooltip. Does nothing when there is no tray (unsupported desktop).
-pub fn set(app: &AppHandle, state: TrayState, tooltip: impl Into<String>) {
+/// Update the status line and tooltip. Does nothing when there is no tray (unsupported desktop).
+pub fn set(app: &AppHandle, state: TrayState, text: impl Into<String>) {
     let Some(tray) = app.try_state::<Tray>() else { return };
-    let tooltip = format!("Lyrixearch: {}", tooltip.into());
-    let changed = {
-        let mut now = tray.now.lock().unwrap();
-        let changed = now.0 != state;
-        *now = (state, tooltip.clone());
-        changed
-    };
-    if changed {
-        let mono = tray.mono.load(std::sync::atomic::Ordering::Relaxed);
-        let _ = tray.icon.set_icon(current_image(&tray, state, dark_panel(app)));
-        #[cfg(target_os = "macos")]
-        let _ = tray.icon.set_icon_as_template(mono);
-        #[cfg(not(target_os = "macos"))]
-        let _ = mono;
-    }
-    let _ = tray.icon.set_tooltip(Some(&tooltip));
+    let text = text.into();
+    *tray.now.lock().unwrap() = state;
+    let mut chars = text.chars();
+    let line = chars.next().map(|c| c.to_uppercase().chain(chars).collect::<String>()).unwrap_or_default();
+    let _ = tray.status.set_text(&line);
+    let _ = tray.stop.set_enabled(state == TrayState::Fetching);
+    let _ = tray.icon.set_tooltip(Some(format!("Lyrixearch: {text}")));
 }
 
-/// Redraw for the current theme (dark/light menu bar or panel).
+/// Redraw for the current theme (dark/light panel). macOS needs nothing: the template follows it.
 pub fn refresh_theme(app: &AppHandle) {
+    if cfg!(target_os = "macos") {
+        return;
+    }
     let Some(tray) = app.try_state::<Tray>() else { return };
-    let state = tray.now.lock().unwrap().0;
-    let _ = tray.icon.set_icon(current_image(&tray, state, dark_panel(app)));
+    let _ = tray.icon.set_icon(image(dark_panel(app)));
 }
