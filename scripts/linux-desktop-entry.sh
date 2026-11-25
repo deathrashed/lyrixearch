@@ -37,7 +37,11 @@ fi
 
 profile="${1:-debug}"
 binary="${CARGO_TARGET_DIR:-$here/target}/$profile/lyrixearch-gui"
-[[ -x "$binary" ]] || { echo "no build at $binary (run: cargo build -p lyrixearch-gui${profile:+ --$profile})" >&2; exit 1; }
+if [[ "${2:-}" == "--package" ]]; then
+  binary=/usr/bin/lyrixearch-gui
+else
+  [[ -x "$binary" ]] || { echo "no build at $binary (run: cargo build -p lyrixearch-gui${profile:+ --$profile})" >&2; exit 1; }
+fi
 
 for s in "${sizes[@]}"; do
   src="$here/crates/gui/icons/${s}x${s}.png"
@@ -57,5 +61,5 @@ Categories=AudioVideo;Audio;
 MimeType=audio/mpeg;audio/flac;audio/mp4;audio/ogg;audio/opus;audio/x-wav;audio/x-aiff;audio/x-wavpack;audio/x-ape;audio/x-ms-wma;inode/directory;
 StartupWMClass=$APP_ID
 EOF
-refresh
+if [[ "${2:-}" != "--package" ]]; then refresh; fi
 echo "installed $entry (runs $binary)"

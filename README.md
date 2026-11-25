@@ -80,7 +80,13 @@ lyrixearch-gui                           # desktop app
 
 ## <img src="https://api.iconify.design/mdi/download.svg?color=%235fe27f" height="22" alt=""> Install
 
-Download a build from [Releases](../../releases) (macOS, Windows, Linux), or build it yourself below.
+Download the installer for your platform from [GitHub Releases](https://github.com/deathrashed/lyrixearch/releases/latest).
+
+- **macOS:** Open the `.dmg` for Apple silicon (`aarch64`) or Intel (`x64`) and drag Lyrixearch to Applications.
+- **Arch Linux / CachyOS (x86_64):** Download `lyrixearch-*.pkg.tar.zst` and install it with `sudo pacman -U ./lyrixearch-*.pkg.tar.zst`. It includes the desktop app and CLI.
+- **Other Linux (x86_64):** Download the `.AppImage`, make it executable with `chmod +x ./Lyrixearch*.AppImage`, then open it. Debian `.deb` and RPM packages are also available.
+- **Windows (x86_64):** Run the `.msi` or setup `.exe`.
+- **CLI only:** Download the archive for your platform, extract `lyrixearch`, and move it onto your `PATH`.
 
 > [!NOTE]
 > Release builds are **unsigned**. On macOS right-click the app and choose Open the first time, or run `xattr -dr com.apple.quarantine Lyrixearch.app`. On Windows choose "More info, Run anyway" in SmartScreen.
@@ -97,7 +103,7 @@ ln -s "$PWD/target/release/lyrixearch" ~/.local/bin/lyrixearch
 | --- | --- |
 | <img src="https://api.iconify.design/mdi/folder-multiple-plus-outline.svg?color=%235fe27f" height="20" alt=""> | **Add music** by dropping folders or files on the window (or the app icon on macOS), **Files** / **Folder**, or the command line. Every subfolder is scanned. **Library** remembers folders and re-scans them in one go. |
 | <img src="https://api.iconify.design/mdi/playlist-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Track list** with cover art, duration and a colored lamp per state. Filter by **All, Missing, Embedded, Found, No match, Failed**. Use **View** to sort or switch between **Comfortable**, **Compact** and **Albums**. |
-| <img src="https://api.iconify.design/mdi/lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Fetch**: the green top-bar button searches the listed tracks and embeds what it finds. A **Replace existing** switch decides whether tracks that already have lyrics are searched too. |
+| <img src="https://api.iconify.design/mdi/lightning-bolt-outline.svg?color=%235fe27f" height="20" alt=""> | **Fetch** searches the selected tracks, or the full list when nothing is selected, and embeds what it finds. Use **Sources** to toggle providers and **Activity** to follow tag reading and fetch progress. |
 | <img src="https://api.iconify.design/mdi/file-music-outline.svg?color=%235fe27f" height="20" alt=""> | **Files menu**: format **Auto / .lrc / .txt**, then **Embed from file** (the file named like the track) or **Write to file**. |
 | <img src="https://api.iconify.design/mdi/play-circle-outline.svg?color=%235fe27f" height="20" alt=""> | **Right pane**: select a track to see its player and **Lyrics**, **Edit**, **Web** and **Details** tabs. With no track selected, **Overview** shows lyrics coverage and **Activity** shows fetch progress and results. |
 | <img src="https://api.iconify.design/mdi/web.svg?color=%235fe27f" height="20" alt=""> | **Web search** inside the window (Google, Bing, DuckDuckGo, Yahoo, Yandex, Brave AI) in phone layout so pages fit; Google AI Mode opens in your own browser. |
@@ -160,7 +166,7 @@ Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixe
 | `local_files` | `.lrc` / `.txt` next to the track or in a `Lyrics/` folder |
 | `genius` | plain lyrics from the public song page |
 | `lrclib` | open database, **synced** lyrics |
-| `azlyrics` | plain lyrics, large English catalogue (its captcha is answered in the desktop app) |
+| `azlyrics` | plain lyrics, large English catalogue; off by default and may require manual verification in the desktop app |
 | `letras` | large catalogue, strong for Portuguese and Spanish music (pages load in the desktop app's browser) |
 | `lyricsfreak` | plain lyrics |
 | `darklyrics` | metal lyrics, album pages (plain http only) |
@@ -171,7 +177,7 @@ Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixe
 | `bandcamp` | lyrics the artist published on the track page |
 | `lyrics_ovh` | exact-name API |
 
-Per track, sources are tried in order, each with one time budget for the track; sources that keep failing, or that ask to slow down, are skipped for a while. A title that finds nothing is retried without trailing brackets, and a "Various Artists" track with its album artist. Tracks whose names are placeholders ("Track 01", "Unknown Artist") are only matched against lyrics files next to them. With a Last.fm API key set (`lastfm_api_key`), misspelled artist and title names are corrected before searching. Ten tracks are searched at once by default. Sites that show a captcha or bot check (DuckDuckGo, AZLyrics, anything behind Cloudflare) are loaded in a hidden browser inside the desktop app; when a check needs a person, the status line offers Verify, and the rest of the search reuses the pass. DuckDuckGo is asked at most once every 2.5 seconds. The CLI has no browser, so it reports those sites and moves on. Not included: Musixmatch, Spotify and Apple Music, whose lyrics need a private app token or a signed-in account.
+Per track, sources are tried in order, each with one time budget for the track; sources that keep failing, or that ask to slow down, are skipped for a while. A title that finds nothing is retried without trailing brackets, and a "Various Artists" track with its album artist. Tracks whose names are placeholders ("Track 01", "Unknown Artist") are only matched against lyrics files next to them. With a Last.fm API key set (`lastfm_api_key`), misspelled artist and title names are corrected before searching. Ten tracks are searched at once by default. Sites that show a captcha or bot check (DuckDuckGo, AZLyrics, anything behind Cloudflare) are loaded in a hidden browser inside the desktop app; when a check needs a person, the status line offers Verify, and the rest of the search reuses the pass. DuckDuckGo is asked at most once every 2.5 seconds. The CLI has no browser or signed-in account sources. Musixmatch is not included.
 
 ## <img src="https://api.iconify.design/mdi/puzzle-outline.svg?color=%235fe27f" height="22" alt=""> Plugins
 

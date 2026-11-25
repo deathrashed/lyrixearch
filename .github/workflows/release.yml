@@ -5,7 +5,6 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -45,6 +44,36 @@ jobs:
           releaseBody: See the README for install notes. Builds are unsigned.
           releaseDraft: true
           args: ${{ matrix.args }}
+
+  arch:
+    name: Arch Linux (x86_64)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native Arch package
+        run: |
+          test "$GITHUB_REF_NAME" = "v$(bash -c 'source PKGBUILD; printf %s "$pkgver"')"
+          mkdir packages
+          git archive HEAD | docker run --rm -i -v "$PWD/packages:/out" archlinux:base-devel bash -euc '
+            pacman -Syu --noconfirm --needed rust alsa-lib gtk3 libayatana-appindicator librsvg openssl webkit2gtk-4.1 xdotool
+            useradd -m builder
+            cd /home/builder
+            runuser -u builder -- tar -xf -
+            runuser -u builder -- makepkg --noconfirm
+            package=(lyrixearch-*.pkg.tar.zst)
+            pacman -Qlp "${package[0]}"
+            tar -xOf "${package[0]}" usr/bin/lyrixearch > /tmp/lyrixearch
+            chmod +x /tmp/lyrixearch
+            /tmp/lyrixearch --version
+            cp "${package[0]}" /out/
+          '
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*.pkg.tar.zst
+          fail_on_unmatched_files: true
+          draft: true
 
   cli:
     name: CLI ${{ matrix.asset }}
