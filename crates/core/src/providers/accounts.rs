@@ -106,9 +106,23 @@ fn read_lyrics(reply: &Value) -> Result<Option<(Option<String>, Option<String>)>
     }
     if let Some(lines) = reply.get("lines").and_then(Value::as_array) {
         let synced = reply.get("synced").and_then(Value::as_bool).unwrap_or(false);
-        let rows: Vec<(Option<u64>, String)> = lines
+        let ms = |v: &Value| v.get("ms").and_then(Value::as_f64).map(|m| m.max(0.0) as u64);
+        let rows: Vec<Row> = lines
             .iter()
-            .map(|l| (l.get("ms").and_then(Value::as_f64).map(|m| m.max(0.0) as u64), l.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string()))
+            .map(|l| Row {
+                ms: ms(l),
+                text: l.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string(),
+                words: l
+                    .get("words")
+                    .and_then(Value::as_array)
+                    .map(|w| {
+                        w.iter()
+                            .filter_map(|w| Some((ms(w)?, w.get("text").and_then(Value::as_str)?.trim().to_string())))
+                            .filter(|(_, t)| !t.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
             .collect();
         return Ok(from_lines(&rows, synced));
     }
@@ -118,14 +132,31 @@ fn read_lyrics(reply: &Value) -> Result<Option<(Option<String>, Option<String>)>
     Ok(None)
 }
 
-/// Lines with start times -> plain text and, when timed, LRC.
-fn from_lines(rows: &[(Option<u64>, String)], synced: bool) -> Option<(Option<String>, Option<String>)> {
-    let plain = rows.iter().map(|(_, t)| clean_line(t)).collect::<Vec<_>>().join("\n").trim().to_string();
+/// One lyric line: its start, its text, and (where the service has it) each word's start.
+struct Row {
+    ms: Option<u64>,
+    text: String,
+    words: Vec<(u64, String)>,
+}
+
+/// Lines with start times -> plain text and, when timed, LRC. Lines with word timing are written
+/// as Enhanced LRC (`[00:12.30]<00:12.30>When <00:12.80>you`); the engine drops the word stamps
+/// again unless word timing is switched on.
+fn from_lines(rows: &[Row], synced: bool) -> Option<(Option<String>, Option<String>)> {
+    let plain = rows.iter().map(|r| clean_line(&r.text)).collect::<Vec<_>>().join("\n").trim().to_string();
     if plain.is_empty() {
         return None;
     }
-    let lrc = (synced && rows.iter().all(|(ms, _)| ms.is_some()))
-        .then(|| rows.iter().map(|(ms, t)| format!("{}{}", stamp(ms.unwrap_or(0)), clean_line(t))).collect::<Vec<_>>().join("\n"));
+    let line = |r: &Row| {
+        let head = stamp(r.ms.unwrap_or(0));
+        if r.words.is_empty() {
+            format!("{head}{}", clean_line(&r.text))
+        } else {
+            let words: Vec<String> = r.words.iter().map(|(ms, w)| format!("{}{w}", stamp(*ms).replace('[', "<").replace(']', ">"))).collect();
+            format!("{head}{}", words.join(" "))
+        }
+    };
+    let lrc = (synced && rows.iter().all(|r| r.ms.is_some())).then(|| rows.iter().map(line).collect::<Vec<_>>().join("\n"));
     Some((Some(plain), lrc))
 }
 
@@ -144,16 +175,18 @@ fn stamp(ms: u64) -> String {
 }
 
 /// Apple Music's TTML: `<p begin="12.345" …>line</p>` per line (begin may be `m:ss.mmm` or
-/// `h:mm:ss.mmm`), `<div>` per verse. Without `begin` the lyrics are unsynced.
+/// `h:mm:ss.mmm`), `<div>` per verse, and in syllable lyrics `<span begin="…">word</span>` per word
+/// or syllable (syllables of one word follow each other without a space). Without `begin` the
+/// lyrics are unsynced.
 fn from_ttml(ttml: &str) -> Option<(Option<String>, Option<String>)> {
-    let mut rows: Vec<(Option<u64>, String)> = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     let mut rest = ttml;
     let mut first_div = true;
     while let Some(i) = rest.find(['<']) {
         rest = &rest[i..];
         if rest.starts_with("<div") {
-            if !first_div && rows.last().is_some_and(|(_, t)| !t.is_empty()) {
-                rows.push((rows.last().and_then(|r| r.0), String::new()));
+            if !first_div && rows.last().is_some_and(|r| !r.text.is_empty()) {
+                rows.push(Row { ms: rows.last().and_then(|r| r.ms), text: String::new(), words: Vec::new() });
             }
             first_div = false;
         }
@@ -163,14 +196,45 @@ fn from_ttml(ttml: &str) -> Option<(Option<String>, Option<String>)> {
             let Some(close) = rest.find("</p>") else { break };
             let inner = &rest[open_end + 1..close];
             let text: String = html_escape::decode_html_entities(&strip_tags(inner)).split_whitespace().collect::<Vec<_>>().join(" ");
-            rows.push((attr(tag, "begin").and_then(parse_clock), text));
+            rows.push(Row { ms: attr(tag, "begin").and_then(parse_clock), text, words: spans(inner) });
             rest = &rest[close + 4..];
             continue;
         }
         rest = &rest[1..];
     }
-    let synced = !rows.is_empty() && rows.iter().filter(|(_, t)| !t.is_empty()).all(|(ms, _)| ms.is_some());
+    let synced = !rows.is_empty() && rows.iter().filter(|r| !r.text.is_empty()).all(|r| r.ms.is_some());
     from_lines(&rows, synced)
+}
+
+/// The timed `<span>`s inside a TTML line, joined into words: a span directly followed by another
+/// (no space between them) is a syllable of the same word, which starts at its first syllable.
+fn spans(inner: &str) -> Vec<(u64, String)> {
+    let mut words: Vec<(u64, String)> = Vec::new();
+    let mut rest = inner;
+    let mut glue = false;
+    while let Some(i) = rest.find("<span") {
+        let gap = &rest[..i];
+        if !gap.is_empty() && gap.chars().any(char::is_whitespace) {
+            glue = false;
+        }
+        rest = &rest[i..];
+        let Some(open_end) = rest.find('>') else { break };
+        let tag = &rest[..open_end];
+        let Some(close) = rest.find("</span>") else { break };
+        let text = html_escape::decode_html_entities(&strip_tags(&rest[open_end + 1..close])).trim().to_string();
+        rest = &rest[close + 7..];
+        let Some(begin) = attr(tag, "begin").and_then(parse_clock) else { continue };
+        if text.is_empty() {
+            continue;
+        }
+        match words.last_mut() {
+            Some(last) if glue => last.1.push_str(&text),
+            _ => words.push((begin, text)),
+        }
+        // the next span belongs to this word unless whitespace comes first
+        glue = !rest.starts_with(char::is_whitespace);
+    }
+    words
 }
 
 fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
@@ -251,5 +315,18 @@ mod tests {
         );
         let (_, unsynced) = from_ttml("<tt><body><div><p>Line one</p><p>Line two</p></div></body></tt>").unwrap();
         assert!(unsynced.is_none());
+    }
+
+    #[test]
+    fn word_timing_becomes_enhanced_lrc() {
+        // Apple syllable lyrics: "an-gel" is two spans with no space between them
+        let ttml = r#"<tt><body><div><p begin="12.0"><span begin="12.0">Just</span> <span begin="12.5">like</span> <span begin="13.0">an</span> <span begin="13.4">an</span><span begin="13.7">gel</span></p></div></body></tt>"#;
+        let (plain, lrc) = from_ttml(ttml).unwrap();
+        assert_eq!(plain.unwrap(), "Just like an angel");
+        assert_eq!(lrc.unwrap(), "[00:12.00]<00:12.00>Just <00:12.50>like <00:13.00>an <00:13.40>angel");
+        // a service reply with words per line
+        let reply = json!({ "synced": true, "lines": [{ "ms": 1000, "text": "Hello there", "words": [{ "ms": 1000, "text": "Hello" }, { "ms": 1450, "text": "there" }] }] });
+        let (_, lrc) = read_lyrics(&reply).unwrap().unwrap();
+        assert_eq!(lrc.unwrap(), "[00:01.00]<00:01.00>Hello <00:01.45>there");
     }
 }

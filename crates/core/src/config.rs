@@ -80,6 +80,9 @@ pub struct Config {
     /// A file without this field predates it, so it knew the original sources.
     #[serde(default = "original_builtins")]
     pub known_providers: Vec<String>,
+    /// Keep timing for single words (Enhanced LRC) where a source has it: in .lrc files and the
+    /// SYNCEDLYRICS tag of FLAC / Ogg. MP3's SYLT frame always gets line timing.
+    pub word_timing: bool,
     /// Desktop app: search tracks as soon as they are added to the list.
     pub auto_fetch: bool,
     /// Desktop app: closing the window keeps the app running in the menu bar / tray.
@@ -124,6 +127,7 @@ impl Default for Config {
             tag_clean_enabled: true,
             tag_clean_pattern: None,
             known_providers: crate::providers::builtin_ids(),
+            word_timing: false,
             auto_fetch: false,
             keep_running: true,
             notify_done: true,
@@ -275,6 +279,7 @@ impl Config {
             "write_tags" => self.write_tags.to_string(),
             "sidecar" => format!("{:?}", self.sidecar).to_ascii_lowercase(),
             "keep_mtime" => self.keep_mtime.to_string(),
+            "word_timing" => self.word_timing.to_string(),
             "auto_fetch" => self.auto_fetch.to_string(),
             "keep_running" => self.keep_running.to_string(),
             "notify_done" => self.notify_done.to_string(),
@@ -310,6 +315,7 @@ impl Config {
             "write_tags" => self.write_tags = b(value)?,
             "sidecar" => self.sidecar = value.parse().map_err(|e: String| anyhow::anyhow!(e))?,
             "keep_mtime" => self.keep_mtime = b(value)?,
+            "word_timing" => self.word_timing = b(value)?,
             "auto_fetch" => self.auto_fetch = b(value)?,
             "keep_running" => self.keep_running = b(value)?,
             "notify_done" => self.notify_done = b(value)?,

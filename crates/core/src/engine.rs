@@ -370,6 +370,10 @@ impl Engine {
                             continue;
                         }
                         l.plain = l.embed_text();
+                        // word timing only when asked for; line timing stays either way
+                        if !self.cfg.word_timing {
+                            l.synced = l.synced.map(|s| if crate::lrc::has_word_timing(&s) { crate::lrc::strip_word_stamps(&s) } else { s });
+                        }
                         self.record_success(id);
                         on_step(id, Step::Done { result: "found", millis: spent.as_millis() as u64 });
                         return Outcome::Found(Box::new(l));

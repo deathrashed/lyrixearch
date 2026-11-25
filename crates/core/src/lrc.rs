@@ -4,6 +4,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 static TIMESTAMP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?(?:-\d+)?\]").unwrap());
+/// Enhanced LRC's word stamps: `[00:12.30]<00:12.30>When <00:12.80>you`.
+static WORD_STAMP: Lazy<Regex> = Lazy::new(|| Regex::new(r"<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>").unwrap());
 static META_LINE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)^\s*\[(ar|ti|al|by|offset|length|au|re|ve|id|hash|sign|qq|total|language|#):[^\]]*\]\s*$").unwrap());
 
@@ -35,7 +37,32 @@ pub fn looks_synced(s: &str) -> bool {
 
 /// Remove timestamps and header tags, leaving plain lines.
 pub fn strip_timestamps(lrc: &str) -> String {
-    lrc.lines().filter(|l| !META_LINE.is_match(l)).map(|l| TIMESTAMP.replace_all(l, "").trim().to_string()).collect::<Vec<_>>().join("\n").trim().to_string()
+    lrc.lines()
+        .filter(|l| !META_LINE.is_match(l))
+        .map(|l| WORD_STAMP.replace_all(&TIMESTAMP.replace_all(l, ""), "").split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+/// True when the LRC has timing for single words (Enhanced LRC).
+pub fn has_word_timing(lrc: &str) -> bool {
+    WORD_STAMP.is_match(lrc)
+}
+
+/// Enhanced LRC -> ordinary LRC: the line stamps stay, the word stamps go.
+pub fn strip_word_stamps(lrc: &str) -> String {
+    lrc.lines()
+        .map(|l| {
+            let cleaned = WORD_STAMP.replace_all(l, "");
+            // keep the leading line stamps exactly; tidy the spacing of the text after them
+            let text_start =
+                TIMESTAMP.find_iter(&cleaned).take_while(|m| m.start() == 0 || cleaned[..m.start()].trim().is_empty()).last().map_or(0, |m| m.end());
+            format!("{}{}", &cleaned[..text_start], cleaned[text_start..].split_whitespace().collect::<Vec<_>>().join(" "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// One `[mm:ss.xx]` stamp, captured for [`timed_lines`]: minutes, seconds, optional fraction.
@@ -55,7 +82,7 @@ pub fn timed_lines(lrc: &str) -> Vec<(u32, String)> {
         if META_LINE.is_match(line) {
             continue;
         }
-        let text = STAMP.replace_all(line, "").trim().to_string();
+        let text = WORD_STAMP.replace_all(&STAMP.replace_all(line, ""), "").split_whitespace().collect::<Vec<_>>().join(" ");
         for cap in STAMP.captures_iter(line) {
             let (Ok(min), Ok(sec)) = (cap[1].parse::<i64>(), cap[2].parse::<i64>()) else { continue };
             // ".5" is tenths, ".50" hundredths, ".500" milliseconds
@@ -79,6 +106,16 @@ pub fn timed_lines(lrc: &str) -> Vec<(u32, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_stamps_are_kept_apart_from_line_stamps() {
+        let e = "[ti:Song]\n[00:12.30]<00:12.30>When <00:12.80>you <00:13.10>were\n[00:15.00]<00:15.00>Here";
+        assert!(has_word_timing(e));
+        assert_eq!(strip_word_stamps(e), "[ti:Song]\n[00:12.30]When you were\n[00:15.00]Here");
+        assert_eq!(strip_timestamps(e), "When you were\nHere");
+        assert_eq!(timed_lines(e), vec![(12300, "When you were".to_string()), (15000, "Here".to_string())]);
+        assert!(!has_word_timing("[00:01.00]plain line"));
+    }
 
     #[test]
     fn credits_only_is_not_a_lyric() {

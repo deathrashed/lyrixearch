@@ -75,6 +75,7 @@
         row('overwrite', 'Replace existing lyrics', 'Search tracks that already have lyrics and overwrite them', sw('overwrite')),
         row('keep_mtime', 'Keep modification date', 'Restore the file date after writing', sw('keep_mtime')),
       ]) + group('Sidecar files', [
+        row('word_timing', 'Word-by-word timing', 'Karaoke timing where a source has it (Apple Music, Deezer): in .lrc files and FLAC / Ogg tags; MP3 keeps line timing', sw('word_timing')),
         row('sidecar', 'Save a .lrc or .txt', 'Next to the track; Auto picks .lrc for synced lyrics', sel('sidecar', [['off', 'Off'], ['auto', 'Auto'], ['lrc', '.lrc only'], ['txt', '.txt only']])),
       ]) + group('Text', [
         row('remove_section_tags', 'Remove section headers', 'Drop lines such as [Chorus] or [Solo]', sw('remove_section_tags')),

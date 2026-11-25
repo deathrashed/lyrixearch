@@ -226,10 +226,14 @@ const DEEZER_OPS: &str = r#"
       try {
         const a = await fetch('https://auth.deezer.com/login/renew?jo=p&rto=c&i=c', { method: 'POST', credentials: 'include' }).then((r) => r.json());
         if (a && a.jwt) {
-          const query = 'query SynchronizedTrackLyrics($trackId: String!) { track(trackId: $trackId) { lyrics { text synchronizedLines { line milliseconds } } } }';
-          const r = await fetch('https://pipe.deezer.com/api', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + a.jwt }, body: JSON.stringify({ operationName: 'SynchronizedTrackLyrics', variables: { trackId: id }, query }) }).then((r) => r.json());
+          const ask = (fields) => fetch('https://pipe.deezer.com/api', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + a.jwt }, body: JSON.stringify({ operationName: 'SynchronizedTrackLyrics', variables: { trackId: id }, query: 'query SynchronizedTrackLyrics($trackId: String!) { track(trackId: $trackId) { lyrics { text ' + fields + ' } } }' }) }).then((r) => r.json());
+          // word-by-word lines where Deezer has them; the line-timed query if that field is not known
+          let r = await ask('synchronizedLines { line milliseconds } synchronizedWordByWordLines { start words { start word } }');
+          if (r && r.errors && !(r.data && r.data.track)) r = await ask('synchronizedLines { line milliseconds }');
           const ly = r && r.data && r.data.track && r.data.track.lyrics;
           if (ly) {
+            const wbw = ly.synchronizedWordByWordLines || [];
+            if (wbw.length) return { synced: true, lines: wbw.map((l) => ({ ms: Number(l.start), text: (l.words || []).map((w) => w.word).join(' '), words: (l.words || []).map((w) => ({ ms: Number(w.start), text: w.word })) })) };
             const lines = ly.synchronizedLines || [];
             if (lines.length) return { synced: true, lines: lines.map((l) => ({ ms: Number(l.milliseconds), text: l.line })) };
             if (ly.text) return { plain: ly.text };
