@@ -46,6 +46,30 @@ enum Cmd {
     },
     /// Print the lyrics embedded in a file
     Show { path: PathBuf },
+    /// Embed lyrics you supply: from a .lrc / .txt file, or from stdin when no --from is given
+    Set {
+        /// The audio file
+        path: PathBuf,
+        /// Lyrics file to read (default: stdin)
+        #[arg(long)]
+        from: Option<PathBuf>,
+    },
+    /// Save embedded lyrics to a .lrc / .txt next to each track
+    Export {
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        #[arg(short, long)]
+        recursive: bool,
+        /// auto (.lrc when the lyrics are timed, else .txt) | lrc | txt
+        #[arg(long, default_value = "auto")]
+        format: Sidecar,
+        /// Replace .lrc / .txt files that already exist
+        #[arg(long)]
+        overwrite: bool,
+        /// One JSON object per track on stdout
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove embedded lyrics from files
     Remove {
         paths: Vec<PathBuf>,
@@ -89,8 +113,12 @@ enum PluginCmd {
     },
     /// Print the plugins folder
     Path,
-    /// Copy a plugin folder (containing plugin.toml) into the plugins folder
+    /// Copy a plugin folder (containing plugin.toml) into the plugins folder and enable it
     Install { dir: PathBuf },
+    /// Use an installed plugin as a source (added at the end of `providers`)
+    Enable { id: String },
+    /// Stop using a plugin as a source (it stays installed)
+    Disable { id: String },
     /// Run one plugin by hand and show what it returns (lyrics text is not printed)
     Test {
         id: String,
@@ -203,6 +231,8 @@ fn main() -> Result<ExitCode> {
             }
         },
         Some(Cmd::EmbedFiles { paths, recursive, overwrite, dry_run, json }) => embed_files_cmd(paths, recursive, overwrite, dry_run, json, &cfg),
+        Some(Cmd::Set { path, from }) => set_cmd(path, from, &cfg),
+        Some(Cmd::Export { paths, recursive, format, overwrite, json }) => export_cmd(paths, recursive, format, overwrite, json, &cfg),
         Some(Cmd::Remove { paths, recursive, yes, json }) => remove_cmd(paths, recursive, yes, json, &cfg),
         Some(Cmd::Providers { test, json }) => rt.block_on(providers_cmd(test, json, cfg)),
         Some(Cmd::Plugins { action }) => rt.block_on(plugins_cmd(action, cfg)),
@@ -431,6 +461,92 @@ fn embed_files_cmd(paths: Vec<PathBuf>, recursive: bool, overwrite: bool, dry_ru
     Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
+fn set_cmd(path: PathBuf, from: Option<PathBuf>, cfg: &Config) -> Result<ExitCode> {
+    use std::io::Read;
+    if !path.is_file() {
+        bail!("{} is not a file", path.display());
+    }
+    let mut text = String::new();
+    match &from {
+        Some(f) => text = std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?,
+        None => {
+            if std::io::stdin().is_terminal() {
+                eprintln!("paste the lyrics, then press Ctrl-D");
+            }
+            std::io::stdin().read_to_string(&mut text)?;
+        }
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        bail!("no lyrics given (use `remove` to clear a track's lyrics)");
+    }
+    // timed lyrics keep their timing: plain text in the lyrics tag, the LRC alongside where the format has room
+    if lyrixearch_core::lrc::looks_synced(text) {
+        let plain = lyrixearch_core::lrc::strip_timestamps(text);
+        tags::write_lyrics_with(&path, plain.trim(), Some(text), cfg.keep_mtime)?;
+    } else {
+        tags::write_lyrics(&path, text, cfg.keep_mtime)?;
+    }
+    println!("embedded: {}", path.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+fn export_cmd(paths: Vec<PathBuf>, recursive: bool, format: Sidecar, overwrite: bool, json: bool, cfg: &Config) -> Result<ExitCode> {
+    use lyrixearch_core::Lyrics;
+    let format = if format == Sidecar::Off { Sidecar::Auto } else { format };
+    let (tracks, _) = load_tracks(&paths, recursive);
+    let (mut written, mut kept, mut none, mut failed) = (0, 0, 0, 0);
+    for t in &tracks {
+        let report = |status: &str, file: Option<&std::path::Path>, error: Option<String>| {
+            if json {
+                println!("{}", json!({"path": t.path.to_string_lossy(), "status": status, "file": file.map(|f| f.to_string_lossy()), "error": error}));
+            }
+        };
+        let Some(text) = tags::read_lyrics(&t.path) else {
+            none += 1;
+            report("no_lyrics", None, None);
+            continue;
+        };
+        // the timed copy (ID3 SYLT / Vorbis SYNCEDLYRICS), or LRC text stored in the lyrics tag itself
+        let synced = tags::read_synced(&t.path).or_else(|| lyrixearch_core::lrc::looks_synced(&text).then(|| text.clone()));
+        let lyrics = Lyrics { plain: Some(text), synced, ..Default::default() };
+        let Some((file, body)) = lyrixearch_core::output::sidecar_plan(&t.path, &lyrics, format, cfg) else {
+            // asked for .lrc but the lyrics have no timing
+            none += 1;
+            report("not_timed", None, None);
+            continue;
+        };
+        if file.exists() && !overwrite {
+            kept += 1;
+            report("exists", Some(&file), None);
+            if !json {
+                println!("kept (exists): {}", file.display());
+            }
+            continue;
+        }
+        match lyrixearch_core::atomic::write(&file, body.as_bytes()) {
+            Ok(()) => {
+                written += 1;
+                report("written", Some(&file), None);
+                if !json {
+                    println!("wrote: {}", file.display());
+                }
+            }
+            Err(e) => {
+                failed += 1;
+                report("error", Some(&file), Some(format!("{e:#}")));
+                if !json {
+                    eprintln!("failed: {}: {e:#}", file.display());
+                }
+            }
+        }
+    }
+    if !json {
+        println!("\n{written} written, {kept} kept (use --overwrite to replace), {none} without usable lyrics, {failed} failed");
+    }
+    Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
+}
+
 fn remove_cmd(paths: Vec<PathBuf>, recursive: bool, yes: bool, json: bool, cfg: &Config) -> Result<ExitCode> {
     if !yes && !std::io::stdin().is_terminal() {
         bail!("remove requires --yes when stdin is not a terminal");
@@ -535,6 +651,25 @@ fn config_cmd(action: ConfigCmd, mut cfg: Config) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn set_plugin_enabled(id: &str, on: bool, mut cfg: Config) -> Result<()> {
+    let has = cfg.providers.iter().any(|p| p == id);
+    match (on, has) {
+        (true, true) => println!("`{id}` is already enabled"),
+        (false, false) => println!("`{id}` is not enabled"),
+        (true, false) => {
+            cfg.providers.push(id.to_string());
+            cfg.save()?;
+            println!("enabled `{id}` (tried after the other sources; reorder with `lyrixearch config set providers …`)");
+        }
+        (false, true) => {
+            cfg.providers.retain(|p| p != id);
+            cfg.save()?;
+            println!("disabled `{id}`");
+        }
+    }
+    Ok(())
+}
+
 async fn plugins_cmd(action: PluginCmd, cfg: Config) -> Result<ExitCode> {
     use lyrixearch_core::providers::plugin;
     let dir = Config::plugins_dir();
@@ -573,10 +708,17 @@ async fn plugins_cmd(action: PluginCmd, cfg: Config) -> Result<ExitCode> {
             let dest = dir.join(src.file_name().context("bad plugin folder name")?);
             lyrixearch_core::util::copy_dir(&src, &dest)?;
             println!("installed `{id}` to {}", dest.display());
-            if !cfg.providers.iter().any(|p| p == &id) {
-                println!("enable it: lyrixearch config set providers {},{}", cfg.providers.join(","), id);
-            }
+            // same as the GUI: an installed plugin is used straight away
+            set_plugin_enabled(&id, true, cfg)?;
         }
+        PluginCmd::Enable { id } => {
+            let (ok, _) = plugin::discover(&dir);
+            if !ok.iter().any(|p| p.manifest().id == id) {
+                bail!("no plugin `{id}` in {} (see `lyrixearch plugins list`)", dir.display());
+            }
+            set_plugin_enabled(&id, true, cfg)?;
+        }
+        PluginCmd::Disable { id } => set_plugin_enabled(&id, false, cfg)?,
         PluginCmd::Test { id, artist, title, album, track } => {
             let (ok, _) = plugin::discover(&dir);
             let p = ok.into_iter().find(|p| p.manifest().id == id).with_context(|| format!("no plugin `{id}` in {}", dir.display()))?;

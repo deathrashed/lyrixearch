@@ -1061,7 +1061,11 @@ async fn export_lyrics(app: AppHandle, state: State<'_, AppState>, ids: Vec<u64>
         use std::io::{ErrorKind, Write};
         let mut res = ExportResult { written: 0, kept: 0, none: 0, failures: Vec::new() };
         let mut exported = Vec::new();
-        for (audio, lyrics, found) in jobs {
+        for (audio, mut lyrics, found) in jobs {
+            // embedded lyrics: pick up the timed copy too, so Auto / .lrc can use it
+            if let Some(l) = lyrics.as_mut().filter(|l| !found && l.synced.is_none()) {
+                l.synced = tags::read_synced(&audio);
+            }
             let Some((path, body)) = lyrics.and_then(|lyrics| lyrixearch_core::output::sidecar_plan(&audio, &lyrics, mode, &cfg)) else {
                 res.none += 1;
                 continue;
