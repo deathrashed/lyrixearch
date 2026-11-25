@@ -1267,6 +1267,7 @@
       if (b.dataset.layout) { S.layout = b.dataset.layout; store.set('lf-layout', S.layout); }
       if (b.dataset.sort) { S.sort = b.dataset.sort; store.set('lf-sort', S.sort); }
       paintView();
+      closeFloating();
       refresh();
       if (S.active != null) scrollToTrack(S.active);
     });

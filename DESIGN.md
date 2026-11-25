@@ -33,7 +33,7 @@ Neutral greys carry the interface. One accent marks the main action, the selecti
 | faint text | #8e8e93 | #6b6b74 |
 
 - Accent: brand green #65E51C by default. In dark mode it is oklch(0.817 0.245 138). In light mode lamps use oklch(0.57 0.18 138) and text uses oklch(0.48 0.14 138). Appearance also offers blue, purple, amber and pink. The accent is used only for the Fetch button, the selection tint (16%), the focus outline, links, switches and sliders.
-- Status colours are fixed and never follow the accent: embedded / ready is green (`--ok`, the brand green), missing is amber, found is blue, not found is purple, error is red. Every lamp has a word next to it.
+- Status colours are fixed and never follow the accent: Embedded / Ready is green (`--ok`, the brand green), Missing is amber, Found is blue, No match is purple, and Failed is red. Every lamp has a word next to it.
 - Contrast: body and secondary text reach at least 4.5:1 on their surfaces in both themes. Lamps, focus outlines and control edges reach at least 3:1.
 
 ## Shape, space, depth
@@ -45,11 +45,13 @@ Neutral greys carry the interface. One accent marks the main action, the selecti
 ## Layout
 
 - Main window: header (52px), then the list and inspector split by a resizable divider, then the status line (30px).
-- Header: brand, filter, Import menu, Library menu, Fetch with its count (the only filled button), theme toggle, Settings.
-- Filter bar: pills with a lamp, a label and a count (All, Missing, Embedded, Found, Not found, Error). The selected pill gets an accent tint, like a selected sidebar item. The list handles one task at a time, so there is no sidebar.
+- Header: filter, Import menu, Library menu, Fetch with its count (the only filled button), theme toggle, and Settings. There is no wordmark. On macOS, the window controls sit in the toolbar.
+- Filter bar: segmented All, Missing, Embedded, Found, No match and Failed filters with counts and status lamps. The View menu sets the list layout and sort order.
 - List bar: selection on the left; Search, Embed, LRC files, then one overflow menu.
-- Rows: 72px tall with a 56px cover (duration badge bottom-right, lamp top-left), then file name, artist and title. The state is written out at the right, with two quiet icon buttons. A selected row gets the accent tint.
-- Inspector: title with status and format tags, the player, then pill tabs Lyrics / Edit / Web / Info. Info is label / value rows, with the folder in the accent colour. Toolbar: Copy, Edit, Search again and an overflow menu, with text size on the right.
+- Rows: track title first, with artist and album on the second line. Comfortable shows larger artwork; Compact fits more rows; Albums groups tracks with a lyrics-completion indicator. A selected row gets the accent tint.
+- Inspector: title with status and format tags, player, then Lyrics / Edit / Web / Details. Details shows match confidence, lyrics statistics and timing, the search trail, and file metadata. The Lyrics toolbar includes the Tidy menu.
+- With no track selected, the right pane shows Overview and Activity. Overview summarises lyrics coverage and albums that need work. Activity shows fetch progress, source totals and recent results. The footer status opens Activity.
+- macOS shortcuts: ⌘F focuses the filter, ⌘O imports, ⌘Return opens Fetch, ⌘, opens Settings, and ⌘1–4 switch track tabs.
 - Status line: a lamp and "Ready" when idle. While searching it shows "Searching" with done/total, the current track and source, the found count and a thin rounded progress bar. When the search ends it shows "Done" with the result for a few seconds. A bot check waiting for the person also shows here, with Verify and Skip. Counts appear only in the filter bar.
 - Settings window (880x620): a section sidebar (General, Sources, Files, Appearance, Plugins, About), a title and subtitle, then cards of rows. Each row has a title, a one-line description and a control on the right. Changes save at once; there is no Save button.
 
@@ -87,7 +89,8 @@ One term per concept:
 | search the selection without writing | Search |
 | write found lyrics into the files | Embed |
 | no lyrics yet | Missing |
-| no source had them | Not found |
+| no source had them | No match |
+| the search could not finish | Failed |
 | take tracks out of the list (files untouched) | Remove from list / Clear embedded from list |
 | delete lyrics inside the files | Delete lyrics from file(s)… |
 | reveal a file | Show in Finder / Show in Explorer / Show in file manager |
@@ -101,7 +104,7 @@ One term per concept:
 ## Iconography
 
 - Lucide icons (inline SVG, 24px grid, 2px stroke, round caps), shared by both windows through `ui/shared.js`.
-- App icon: the approved artwork package v6 (charcoal speaker faceplate, green magnifier over lyric lines, green LED), used for the bundle, the window, the header and the About section.
+- App icon: the approved artwork package v6 (charcoal speaker faceplate, green magnifier over lyric lines, green LED), used for the bundle, the window and the About section.
 
 ## Tokens
 

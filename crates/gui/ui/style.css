@@ -431,6 +431,8 @@ html.mac .topbar { padding-left: 86px; }
 .filterbar .viewtabs button[aria-selected="true"] { background: var(--surface-3); color: var(--fg); }
 .filterbar .viewtabs button[aria-selected="true"] b { color: var(--fg); }
 .filterbar .viewtabs .led { width: 7px; height: 7px; }
+[role="menuitemradio"][aria-checked="true"]::after { content: ''; width: 6px; height: 10px; margin-left: auto; margin-right: 4px; border: solid var(--accent-text); border-width: 0 2px 2px 0; transform: rotate(45deg) translateY(-2px); }
+[role="menuitemradio"]:disabled { opacity: 0.45; }
 .menu-head { margin: 4px 10px 2px; font-size: var(--text-xs); color: var(--faint); }
 
 /* ───────── rows: comfortable (title, artist · album) and compact (one line) ───────── */

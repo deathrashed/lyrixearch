@@ -1452,6 +1452,7 @@ const SELFTEST_JS: &str = r#"
     const before = localStorage.getItem('lf-layout');
     const pick = async (sel) => { document.getElementById('btn-view').click(); await sleep(200); document.querySelector(sel).click(); await sleep(300); };
     window.__lf.selectId(null);
+    document.querySelector('#pane-tabs [data-pane=overview]').click();
     await sleep(400);
     out.overview = [...document.querySelectorAll('#overview .dx-card h3')].map((h) => h.textContent.trim());
     step('shot:comfortable'); await sleep(2500);
