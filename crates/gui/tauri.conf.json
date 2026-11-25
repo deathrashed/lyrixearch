@@ -27,6 +27,14 @@
     "macOS": {
       "minimumSystemVersion": "11.0"
     },
+    "linux": {
+      "deb": {
+        "depends": ["libasound2 | libasound2t64"]
+      },
+      "rpm": {
+        "depends": ["alsa-lib"]
+      }
+    },
     "publisher": "Lyrixearch contributors",
     "copyright": "Copyright (c) Lyrixearch contributors. MIT License.",
     "shortDescription": "Find lyrics for your music and embed them in the files",
