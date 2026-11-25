@@ -196,6 +196,18 @@
     <hr />
     <button role="menuitem" class="danger" id="mn-remove"><span data-icon="trash"></span><span>Delete lyrics from files…</span></button>
   </div>
+  <div class="popover floating menu" id="ctx-pop" role="menu" aria-label="Track actions" hidden>
+    <button role="menuitem" id="cx-search"><span data-icon="search"></span><span>Search</span></button>
+    <button role="menuitem" id="cx-embed"><span data-icon="download"></span><span>Embed found lyrics</span></button>
+    <button role="menuitem" id="cx-files"><span data-icon="fileText"></span><span>LRC and TXT files…</span></button>
+    <hr />
+    <button role="menuitem" id="cx-copy"><span data-icon="copy"></span><span>Copy lyrics</span></button>
+    <button role="menuitem" id="cx-reveal"><span data-icon="reveal"></span><span id="cx-reveal-label">Show in file manager</span></button>
+    <button role="menuitem" id="cx-path"><span data-icon="link"></span><span id="cx-path-label">Copy file path</span></button>
+    <hr />
+    <button role="menuitem" id="cx-drop"><span data-icon="x"></span><span>Remove from list</span></button>
+    <button role="menuitem" class="danger" id="cx-remove"><span data-icon="trash"></span><span id="cx-remove-label">Delete lyrics from file…</span></button>
+  </div>
   <div class="popover floating menu" id="track-pop" role="menu" aria-label="More track actions" hidden>
     <button role="menuitem" id="tm-paste"><span data-icon="paste"></span><span>Paste lyrics</span></button>
     <button role="menuitem" id="tm-files"><span data-icon="fileText"></span><span>LRC and TXT files…</span></button>

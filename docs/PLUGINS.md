@@ -6,17 +6,18 @@ track, sends the track details as JSON on **stdin**, and reads one JSON object f
 ## Install
 
 ```sh
-lyrixearch plugins install plugins/metallum     # copies the folder and prints how to enable it
+lyrixearch plugins install plugins/metallum     # copies the folder and enables it
 lyrixearch plugins list
+lyrixearch plugins disable metallum             # stop using it (stays installed); `enable` turns it back on
 lyrixearch plugins test metallum --artist "Band" --title "Song" --album "Album" --track 1
 ```
 
-Plugins live in `<config dir>/lyrixearch/plugins/<name>/` (`lyrixearch plugins path` prints it;
-on macOS that is `~/Library/Application Support/lyrixearch/plugins`). The GUI's
+Plugins live in `~/.config/lyrixearch/plugins/<name>/` on macOS and Linux (`$XDG_CONFIG_HOME` is
+honoured; `%APPDATA%\lyrixearch\plugins` on Windows; `lyrixearch plugins path` prints it). The GUI's
 **Settings → Plugins → Install plugin folder…** does the same and enables the plugin.
 
-A plugin is only used when its `id` is in the `providers` list (Settings → Sources, or
-`lyrixearch config set providers a,b,c`). Order matters: the first source that returns lyrics wins.
+A plugin is only used when its `id` is in the `providers` list (Settings → Sources, `plugins
+enable`, or `lyrixearch config set providers a,b,c`). Enabling adds it last. Order matters: the first source that returns lyrics wins.
 
 ## Manifest — `plugin.toml`
 

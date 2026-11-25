@@ -319,6 +319,32 @@
   }
 
   // ───────────────────────── inspector ─────────────────────────
+  // right-click on a row: act on the selection, or on just that row when it is not selected
+  function openContextMenu(ev) {
+    const row = ev.target.closest('.row');
+    if (!row) return;
+    ev.preventDefault();
+    const id = Number(row.dataset.id);
+    if (!S.sel.has(id)) { selectOnly(id); setActive(id); renderRows(); renderSelbar(); renderTop(); }
+    const n = S.sel.size, one = n === 1;
+    const el = $('#ctx-pop');
+    $('#cx-copy').hidden = !one;
+    $('#cx-reveal').hidden = !one;
+    $('#cx-path-label').textContent = one ? 'Copy file path' : `Copy ${n} file paths`;
+    $('#cx-remove-label').textContent = one ? 'Delete lyrics from file…' : `Delete lyrics from ${n} files…`;
+    $('#cx-embed').disabled = ![...S.sel].some((i) => S.tracks.get(i)?.status === 'found');
+    closeFloating(false);
+    if (S.libOpen) toggleLibrary(false);
+    el.hidden = false;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = `${Math.round(Math.max(8, Math.min(ev.clientX, innerWidth - w - 8)))}px`;
+    el.style.top = `${Math.round(ev.clientY + h > innerHeight - 8 ? Math.max(8, ev.clientY - h) : ev.clientY)}px`;
+    S.pop = { el, anchor: row };
+    S.popOpen = true;
+    syncBrowser();
+    $$('button:not([hidden]):not(:disabled)', el)[0]?.focus();
+  }
+
   async function setActive(id) {
     if (S.player && S.player.id !== id && (S.player.state === 'playing' || S.player.state === 'paused')) invoke('player_stop');
     S.active = id;
@@ -883,6 +909,40 @@
     const ua = navigator.userAgent;
     $('#tm-reveal-label').textContent = /Mac/.test(ua) ? 'Show in Finder' : /Windows/.test(ua) ? 'Show in Explorer' : 'Show in file manager';
     $('#tm-paste').onclick = () => { closeFloating(); pasteLyrics(); };
+    // arrow keys move between the items of any open menu
+    document.addEventListener('keydown', (e) => {
+      const menu = e.target.closest?.('.menu');
+      if (!menu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+      const items = $$('button:not([hidden]):not(:disabled)', menu);
+      if (!items.length) return;
+      e.preventDefault();
+      const i = items.indexOf(document.activeElement);
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next].focus();
+    });
+    // row context menu
+    $('#table').addEventListener('contextmenu', openContextMenu);
+    $('#cx-reveal-label').textContent = $('#tm-reveal-label').textContent;
+    const ctxIds = () => [...S.sel];
+    $('#cx-search').onclick = () => { closeFloating(); startSearch(ctxIds(), false, S.replace); };
+    $('#cx-embed').onclick = () => { closeFloating(); embedIds(ctxIds()); };
+    $('#cx-files').onclick = () => { const a = S.pop?.anchor; closeFloating(); openFileOptions(a || $('#sel-files'), 'sel'); };
+    $('#cx-copy').onclick = () => { closeFloating(); $('#act-copy').click(); };
+    $('#cx-reveal').onclick = () => { closeFloating(); invoke('reveal_track', { id: ctxIds()[0] }).catch((e) => toast(errText(e), 'bad')); };
+    $('#cx-path').onclick = async () => {
+      closeFloating();
+      const paths = ctxIds().map((i) => S.tracks.get(i)?.path).filter(Boolean);
+      try { await clip.write(paths.join('\n')); toast(paths.length === 1 ? 'File path copied' : `${paths.length} file paths copied`, 'good'); } catch { toast('Clipboard unavailable', 'bad'); }
+    };
+    $('#cx-drop').onclick = async () => { closeFloating(); setTracks((await invoke('remove_tracks', { ids: ctxIds() })).tracks); };
+    $('#cx-remove').onclick = () => { closeFloating(); removeLyrics(ctxIds()); };
+    $('#ctx-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeFloating(); $('#table').focus(); } });
+    // no browser menu (Reload, Inspect) elsewhere; text fields and selected text keep theirs for copy and paste
+    document.addEventListener('contextmenu', (e) => {
+      if (e.defaultPrevented || e.target.closest('input, textarea, [contenteditable="true"]') || String(getSelection()).trim()) return;
+      e.preventDefault();
+    });
+
     $('#tm-files').onclick = () => { const a = $('#act-more'); closeFloating(); openFileOptions(a, 'active'); };
     $('#tm-reveal').onclick = () => { closeFloating(); invoke('reveal_track', { id: tid() }).catch((e) => toast(errText(e), 'bad')); };
     $('#tm-path').onclick = async () => { closeFloating(); try { await clip.write(activeTrack().path); toast('File path copied', 'good'); } catch { toast('Clipboard unavailable', 'bad'); } };

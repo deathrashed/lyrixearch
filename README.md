@@ -129,7 +129,9 @@ Run `lyrixearch` with no arguments.
 | `/` | find | `t` / `x` | tags on-off / sidecar mode |
 | `?` | help | `q` | quit |
 
-The header counts files, with lyrics, left to search and NA; while searching, the footer shows a progress bar with the current track, source, found and NA counts.
+The filter bar counts tracks by state (Missing, Embedded, Found, Not found, Error). While a search runs, the status line shows the progress, the current track and source, and how many were found. Right-click a track (or a selection) for Search, Embed, LRC and TXT files, Copy lyrics, Show in Finder, Copy file path, Remove from list and Delete lyrics.
+
+Settings live in `~/.config/lyrixearch/config.toml` (or `$XDG_CONFIG_HOME/lyrixearch`; `%APPDATA%\lyrixearch` on Windows). The app and the CLI share that file: a change in one is used by the other.
 
 <details>
 <summary><strong>CLI</strong></summary>
@@ -140,11 +142,13 @@ The header counts files, with lyrics, left to search and NA; while searching, th
 | `fetch <paths> [-r] [--dry-run] [--overwrite] [--synced] [--sidecar off\|auto\|lrc\|txt] [--keep-mtime\|--no-keep-mtime]` | search and embed |
 | `embed-files <paths…> [--overwrite] [--dry-run]` | embed the `.lrc`/`.txt` beside each track (an `.lrc` fills the synced field too) |
 | `show <file>` / `remove <paths…> [--yes]` | print or delete embedded lyrics (`remove` needs `--yes` without a terminal) |
+| `set <file> [--from lyrics.lrc]` | embed lyrics you supply, from a file or stdin (timed lyrics keep their timing) |
+| `export <paths…> [-r] [--format auto\|lrc\|txt] [--overwrite]` | save embedded lyrics to a `.lrc`/`.txt` beside each track |
 | `providers [--test]` | list sources, optionally health-check them |
-| `plugins list\|install\|test\|path` | manage plugins |
+| `plugins list\|install\|enable\|disable\|test\|path` | manage plugins (`install` also enables) |
 | `config show\|get\|set\|path\|reset` | settings (TOML) |
 
-`--json` on `scan`, `fetch`, `embed-files`, `remove`, `providers` and `plugins list` prints one JSON object per line on stdout, for scripts.
+`--json` on `scan`, `fetch`, `embed-files`, `export`, `remove`, `providers` and `plugins list` prints one JSON object per line on stdout, for scripts.
 
 </details>
 
