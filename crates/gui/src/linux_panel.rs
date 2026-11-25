@@ -31,6 +31,25 @@ pub fn place(browser: &tauri::Webview, place: Place) {
         page.set_margin_top(place.y.round().max(0.0) as i32);
         page.set_size_request(place.w.round().max(1.0) as i32, place.h.round().max(1.0) as i32);
         page.queue_resize();
+        if std::env::var_os("LYRIXEARCH_BROWSER_DEBUG").is_some() || std::env::var_os("LYRIXEARCH_SELFTEST").is_some() {
+            // where GTK actually put it, once the layout has run
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                let a = page.allocation();
+                let parent = page.parent().map(|p| p.type_().name().to_string()).unwrap_or_default();
+                eprintln!(
+                    "linux web panel: in {parent}, wanted ({:.0}, {:.0}) {:.0}x{:.0}, allocated ({}, {}) {}x{}, visible={}",
+                    place.x,
+                    place.y,
+                    place.w,
+                    place.h,
+                    a.x(),
+                    a.y(),
+                    a.width(),
+                    a.height(),
+                    page.is_visible()
+                );
+            });
+        }
     });
 }
 
